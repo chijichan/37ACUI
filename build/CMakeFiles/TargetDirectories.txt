@@ -1,0 +1,4 @@
+E:/pj/37ACUI/build/CMakeFiles/ACUI.dir
+E:/pj/37ACUI/build/CMakeFiles/INSTALL.dir
+E:/pj/37ACUI/build/CMakeFiles/ALL_BUILD.dir
+E:/pj/37ACUI/build/CMakeFiles/ZERO_CHECK.dir

@@ -1,0 +1,10 @@
+^E:\PJ\37ACUI\BUILD\CMAKEFILES\0A888FEAE857DC9C9AE22420DDB12CA7\GENERATE.STAMP.RULE
+setlocal
+E:\apps\VS2022\app\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe -SE:/pj/37ACUI -BE:/pj/37ACUI/build --check-stamp-list CMakeFiles/generate.stamp.list --vs-solution-file E:/pj/37ACUI/build/ACUI.sln
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
