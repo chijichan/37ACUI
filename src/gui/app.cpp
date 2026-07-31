@@ -186,25 +186,41 @@ bool App::init(const char *title, int width, int height)
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
     io.IniFilename = "acui.ini";
 
-    ImGui::StyleColorsDark();
+    ImGui::StyleColorsLight();
     ImGuiStyle &s = ImGui::GetStyle();
     s.WindowRounding = 4.0f;
     s.FrameRounding = 3.0f;
     s.GrabRounding = 3.0f;
-    s.Colors[ImGuiCol_WindowBg] = ImVec4(0.08f, 0.08f, 0.10f, 1.00f);
-    s.Colors[ImGuiCol_Tab] = ImVec4(0.15f, 0.15f, 0.18f, 1.00f);
-    s.Colors[ImGuiCol_TabHovered] = ImVec4(0.25f, 0.25f, 0.30f, 1.00f);
-    s.Colors[ImGuiCol_TabActive] = ImVec4(0.20f, 0.20f, 0.28f, 1.00f);
-    s.Colors[ImGuiCol_Button] = ImVec4(0.18f, 0.18f, 0.22f, 1.00f);
-    s.Colors[ImGuiCol_ButtonHovered] = ImVec4(0.28f, 0.28f, 0.35f, 1.00f);
-    s.Colors[ImGuiCol_ButtonActive] = ImVec4(0.22f, 0.22f, 0.30f, 1.00f);
-    s.Colors[ImGuiCol_FrameBg] = ImVec4(0.12f, 0.12f, 0.15f, 1.00f);
-    s.Colors[ImGuiCol_Header] = ImVec4(0.18f, 0.18f, 0.22f, 1.00f);
+    // 37AC 配色方案（基于 PicoCSS light theme + 品牌色 #0f172a）
+    s.Colors[ImGuiCol_WindowBg] = ImVec4(1.00f, 1.00f, 1.00f, 1.00f);
+    s.Colors[ImGuiCol_ChildBg] = ImVec4(0.96f, 0.97f, 0.98f, 1.00f);
+    s.Colors[ImGuiCol_TitleBg] = ImVec4(0.06f, 0.09f, 0.16f, 1.00f); // #0f172a
+    s.Colors[ImGuiCol_TitleBgActive] = ImVec4(0.06f, 0.09f, 0.16f, 1.00f);
+    s.Colors[ImGuiCol_MenuBarBg] = ImVec4(0.96f, 0.97f, 0.98f, 1.00f);
+    s.Colors[ImGuiCol_Tab] = ImVec4(0.92f, 0.93f, 0.95f, 1.00f);
+    s.Colors[ImGuiCol_TabHovered] = ImVec4(0.85f, 0.87f, 0.90f, 1.00f);
+    s.Colors[ImGuiCol_TabActive] = ImVec4(1.00f, 1.00f, 1.00f, 1.00f);
+    s.Colors[ImGuiCol_Button] = ImVec4(0.92f, 0.93f, 0.95f, 1.00f);
+    s.Colors[ImGuiCol_ButtonHovered] = ImVec4(0.85f, 0.87f, 0.90f, 1.00f);
+    s.Colors[ImGuiCol_ButtonActive] = ImVec4(0.75f, 0.78f, 0.82f, 1.00f);
+    s.Colors[ImGuiCol_FrameBg] = ImVec4(0.96f, 0.97f, 0.98f, 1.00f);
+    s.Colors[ImGuiCol_FrameBgHovered] = ImVec4(0.92f, 0.93f, 0.95f, 1.00f);
+    s.Colors[ImGuiCol_FrameBgActive] = ImVec4(0.85f, 0.87f, 0.90f, 1.00f);
+    s.Colors[ImGuiCol_Header] = ImVec4(0.92f, 0.93f, 0.95f, 1.00f);
+    s.Colors[ImGuiCol_HeaderHovered] = ImVec4(0.85f, 0.87f, 0.90f, 1.00f);
+    s.Colors[ImGuiCol_HeaderActive] = ImVec4(0.75f, 0.78f, 0.82f, 1.00f);
+    s.Colors[ImGuiCol_Separator] = ImVec4(0.85f, 0.87f, 0.90f, 1.00f);
+    s.Colors[ImGuiCol_Text] = ImVec4(0.06f, 0.09f, 0.16f, 1.00f); // #0f172a
+    s.Colors[ImGuiCol_TextDisabled] = ImVec4(0.55f, 0.58f, 0.63f, 1.00f);
+    s.Colors[ImGuiCol_ResizeGrip] = ImVec4(0.75f, 0.78f, 0.82f, 1.00f);
     s.ScrollbarSize = 10.0f;
     s.ItemSpacing = ImVec2(8, 6);
 
     io.Fonts->AddFontFromFileTTF("C:/Windows/Fonts/msyh.ttc", 16.0f, nullptr,
                                  io.Fonts->GetGlyphRangesChineseFull());
+    // 大字号 Logo 字体（26px ≈ 16px 的 1.6 倍）
+    m_bigFont = io.Fonts->AddFontFromFileTTF("C:/Windows/Fonts/msyh.ttc", 26.0f, nullptr,
+                                             io.Fonts->GetGlyphRangesChineseFull());
 
     ImGui_ImplGlfw_InitForOpenGL(g_window, true);
     ImGui_ImplOpenGL3_Init("#version 330");
@@ -480,7 +496,7 @@ void App::run()
         int dw, dh;
         glfwGetFramebufferSize(g_window, &dw, &dh);
         glViewport(0, 0, dw, dh);
-        glClearColor(0.06f, 0.06f, 0.08f, 1.00f);
+        glClearColor(1.00f, 1.00f, 1.00f, 1.00f); // 白色背景（与浅色主题一致）
         glClear(GL_COLOR_BUFFER_BIT);
         ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
         glfwSwapBuffers(g_window);
@@ -506,7 +522,7 @@ void App::run()
 void App::render()
 {
     ImVec2 vs = ImGui::GetIO().DisplaySize;
-    float statusH = 26.0f;
+    float statusH = 24.0f; // 与状态栏实际高度一致，避免底部露出缝隙
     float logH = vs.y * 0.4f;
     float navW = vs.x * 0.25f; // 左侧占 1/4
     float contentX = navW;
@@ -554,9 +570,32 @@ void App::render()
 // ==================== 左侧导航栏 ====================
 void App::renderSideNav()
 {
-    // Logo
-    ImGui::TextColored(ImVec4(0.3f, 0.8f, 1.0f, 1), "37ACUI");
-    ImGui::Separator();
+    // 计算导航内容总高度，实现垂直居中
+    float contentH = ImGui::GetWindowHeight();
+    float logoH = (m_bigFont ? m_bigFont->FontSize : ImGui::GetTextLineHeightWithSpacing()) + 16.0f;
+    float sepH = 8;
+    float navH = 36.0f * 3 + ImGui::GetStyle().ItemSpacing.y * 3; // 3 个按钮
+    float bottomSpacing = 20;
+    float exitH = 36.0f;
+    float total = logoH + sepH + navH + bottomSpacing + sepH + exitH;
+
+    // 顶部留白（垂直居中）
+    float topPad = (contentH - total) / 2.0f;
+    if (topPad > 0)
+        ImGui::Dummy(ImVec2(0, topPad));
+
+    // Logo（大字号字体 + 左右居中）
+    if (m_bigFont)
+        ImGui::PushFont(m_bigFont);
+    float logoW = ImGui::CalcTextSize("37ACUI").x;
+    float availW = ImGui::GetContentRegionAvail().x;
+    ImGui::SetCursorPosX((availW - logoW) / 2.0f);
+    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.25f, 0.45f, 0.65f, 1.0f));
+    ImGui::Text("37ACUI");
+    ImGui::PopStyleColor();
+    if (m_bigFont)
+        ImGui::PopFont();
+    ImGui::Spacing();
     ImGui::Spacing();
 
     // 导航按钮
@@ -564,12 +603,25 @@ void App::renderSideNav()
     for (int i = 0; i < 3; i++)
     {
         bool selected = (m_activeNav == i);
-        if (selected)
-            ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.25f, 0.45f, 0.65f, 1.0f));
+
+        // 预检测鼠标悬停：按钮矩形 = 当前光标位置 + 内容区宽度 x 36 高
+        ImVec2 btnMin = ImGui::GetCursorScreenPos();
+        ImVec2 btnMax = ImVec2(btnMin.x + ImGui::GetContentRegionAvail().x, btnMin.y + 36.0f);
+        bool hovered = ImGui::IsMouseHoveringRect(btnMin, btnMax);
+
+        if (selected || hovered)
+        {
+            // 选中或悬停：深蓝背景 + 白色文字
+            ImGui::PushStyleColor(ImGuiCol_Button,
+                                  selected ? ImVec4(0.25f, 0.45f, 0.65f, 1.0f) : ImVec4(0.20f, 0.35f, 0.55f, 1.0f));
+            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.30f, 0.50f, 0.70f, 1.0f));
+            ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.35f, 0.55f, 0.75f, 1.0f));
+            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 1.0f, 1.0f, 1.0f));
+        }
         if (ImGui::Button(navItems[i], ImVec2(-1, 36)))
             m_activeNav = i;
-        if (selected)
-            ImGui::PopStyleColor();
+        if (selected || hovered)
+            ImGui::PopStyleColor(4);
         ImGui::Spacing();
     }
 
@@ -579,8 +631,24 @@ void App::renderSideNav()
     ImGui::Spacing();
     ImGui::Spacing();
     ImGui::Spacing();
-    if (ImGui::Button(TR("nav.exit"), ImVec2(-1, 36)))
-        glfwSetWindowShouldClose(g_window, true);
+
+    // 退出按钮同样支持 hover 白字
+    {
+        ImVec2 btnMin = ImGui::GetCursorScreenPos();
+        ImVec2 btnMax = ImVec2(btnMin.x + ImGui::GetContentRegionAvail().x, btnMin.y + 36.0f);
+        bool hovered = ImGui::IsMouseHoveringRect(btnMin, btnMax);
+        if (hovered)
+        {
+            ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.72f, 0.41f, 0.42f, 1.0f));
+            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.80f, 0.48f, 0.48f, 1.0f));
+            ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.62f, 0.34f, 0.35f, 1.0f));
+            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 1.0f, 1.0f, 1.0f));
+        }
+        if (ImGui::Button(TR("nav.exit"), ImVec2(-1, 36)))
+            glfwSetWindowShouldClose(g_window, true);
+        if (hovered)
+            ImGui::PopStyleColor(4);
+    }
 }
 
 // ==================== 右侧内容区 ====================
@@ -703,11 +771,11 @@ void App::renderStatusBar()
     ImGui::PopStyleVar(3);
 
     if (m_pythonOk)
-        ImGui::TextColored(ImVec4(0, 1, 0, 1), "%s", TR("status.python_ok"));
+        ImGui::TextColored(ImVec4(0.11f, 0.41f, 0.33f, 1), "%s", TR("status.python_ok"));
     else
-        ImGui::TextColored(ImVec4(1, 0.3f, 0.3f, 1), "%s", TR("status.python_no"));
+        ImGui::TextColored(ImVec4(0.72f, 0.41f, 0.42f, 1), "%s", TR("status.python_no"));
     ImGui::SameLine();
-    ImGui::Separator();
+    // ImGui::Separator();
     ImGui::SameLine();
     ImGui::Text("%s %s", TR("status.project"), m_projectRoot.c_str());
 
@@ -715,7 +783,7 @@ void App::renderStatusBar()
     ImGui::SameLine(ImGui::GetContentRegionMax().x - ImGui::GetCursorPosX() - 100.0f);
     if (m_procRunning)
     {
-        ImGui::TextColored(ImVec4(1, 1, 0, 1), "%s%s", TR("nav.status"), TR("nav.running"));
+        ImGui::TextColored(ImVec4(1.0f, 0.65f, 0.0f, 1), "%s%s", TR("nav.status"), TR("nav.running"));
         ImGui::SameLine();
         if (ImGui::SmallButton(TR("nav.stop")))
             stopProcess();
@@ -736,7 +804,7 @@ void App::renderEnvPanel()
     t(TR("env.python"));
     if (m_pythonOk)
     {
-        ImGui::TextColored(ImVec4(0, 1, 0, 1), "  %s", TR("env.ready"));
+        ImGui::TextColored(ImVec4(0.11f, 0.41f, 0.33f, 1), "  %s", TR("env.ready"));
         ImGui::SameLine();
         if (ImGui::SmallButton(TR("env.recheck")))
             checkPython();
@@ -744,7 +812,7 @@ void App::renderEnvPanel()
     }
     else
     {
-        ImGui::TextColored(ImVec4(1, 0.3f, 0.3f, 1), "  %s", TR("env.nofound"));
+        ImGui::TextColored(ImVec4(0.72f, 0.41f, 0.42f, 1), "  %s", TR("env.nofound"));
         if (ImGui::Button(TR("env.detect"), ImVec2(120, 30)))
             checkPython();
     }
@@ -799,7 +867,7 @@ void App::renderEnvPanel()
     ImGui::Spacing();
     if (m_gitCloning)
     {
-        ImGui::TextColored(ImVec4(1, 1, 0, 1), "%s", TR("git.cloning"));
+        ImGui::TextColored(ImVec4(1.0f, 0.65f, 0.0f, 1), "%s", TR("git.cloning"));
     }
     else
     {
@@ -835,9 +903,9 @@ void App::renderServerPanel()
     {ImGui::Spacing(); ImGui::TextColored(ImVec4(0.3f,0.8f,1.0f,1),"%s",s); ImGui::Separator(); };
     t(TR("srv.title"));
     if (m_serverStatus == 1)
-        ImGui::TextColored(ImVec4(0, 1, 0, 1), "  %s", TR("srv.on"));
+        ImGui::TextColored(ImVec4(0.11f, 0.41f, 0.33f, 1), "  %s", TR("srv.on"));
     else if (m_serverStatus == 0)
-        ImGui::TextColored(ImVec4(1, 0.3f, 0.3f, 1), "  %s", TR("srv.off"));
+        ImGui::TextColored(ImVec4(0.72f, 0.41f, 0.42f, 1), "  %s", TR("srv.off"));
     else
         ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1), "  %s", TR("srv.unknown"));
     if (ImGui::Button(TR("srv.start"), ImVec2(180, 40)))

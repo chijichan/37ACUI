@@ -55,8 +55,8 @@ void ConsoleWidget::Draw(const char *title, ImVec2 size, bool hasInput,
     ImGui::BeginChild("ConsoleOut", size, false, ImGuiWindowFlags_HorizontalScrollbar);
 
     // 输出区域 — InputTextMultiline 只读模式，原生支持框选和 Ctrl+C
-    ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0.06f, 0.06f, 0.08f, 1.00f));
-    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.0f, 1.0f, 0.0f, 1.00f));
+    ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0.94f, 0.95f, 0.96f, 1.00f));
+    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.06f, 0.09f, 0.16f, 1.00f));
 
     static char consoleBuf[65536 * 4];
     strncpy_s(consoleBuf, m_fullText.c_str(), sizeof(consoleBuf) - 1);

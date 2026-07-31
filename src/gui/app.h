@@ -40,12 +40,12 @@ public:
 
 private:
     void render();
-    void renderSideNav();       // 左侧导航栏
-    void renderContentArea();   // 右侧内容区
+    void renderSideNav();     // 左侧导航栏
+    void renderContentArea(); // 右侧内容区
     void renderStatusBar();
-    void renderLogArea();       // 控制台区
-    void renderLaunchPanel();   // 启动页（环境+Git+服务端+CLI）
-    void renderEnvPanel();      // 环境 + Git
+    void renderLogArea();     // 控制台区
+    void renderLaunchPanel(); // 启动页（环境+Git+服务端+CLI）
+    void renderEnvPanel();    // 环境 + Git
     void renderServerPanel();
     void renderCliPanel();
     void renderToolsPanel();    // 工具页
@@ -66,6 +66,7 @@ private:
     std::thread m_procThread;
     ConsoleWidget m_console;
     void *m_procStdinWrite = nullptr;
+    ImFont *m_bigFont = nullptr; // 大字号 Logo 字体
     char m_gitUrl[256] = "https://github.com/chijichan/37AC.git";
     char m_gitDir[256] = "E:/apps/37ACUI";
     bool m_gitCloning = false;
