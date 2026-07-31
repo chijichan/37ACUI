@@ -78,9 +78,9 @@ private:
     void *m_procStdinWrite = nullptr;
     std::atomic<unsigned long> m_procPid{0}; // 当前子进程 PID（0 = 无），用于精确终止进程
     std::atomic<bool> m_uiDirty{true};       // UI 需要重绘（后台线程日志/状态更新时置位）
-    ImFont *m_bigFont = nullptr;   // 大字号 Logo 字体
-    ImFont *m_titleFont = nullptr; // 卡片标题字体（加粗、略大）
-    ImFont *m_monoFont = nullptr;  // 控制台等宽字体
+    ImFont *m_bigFont = nullptr;             // 大字号 Logo 字体
+    ImFont *m_titleFont = nullptr;           // 卡片标题字体（加粗、略大）
+    ImFont *m_monoFont = nullptr;            // 控制台等宽字体
     char m_gitUrl[256] = "https://github.com/chijichan/37AC.git";
     bool m_gitCloning = false;
     int m_winX = 100, m_winY = 50, m_winW = 1280, m_winH = 800;
