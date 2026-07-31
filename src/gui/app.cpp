@@ -41,6 +41,97 @@ static std::string stripAnsi(const std::string &s)
     return out;
 }
 
+// ==================== 视觉辅助 ====================
+// 状态色（绿/红/灰）
+static const ImU32 g_colGreen = IM_COL32(34, 197, 94, 255);
+static const ImU32 g_colRed = IM_COL32(239, 68, 68, 255);
+static const ImU32 g_colGray = IM_COL32(150, 160, 172, 255);
+static const ImU32 g_colAccent = IM_COL32(37, 99, 235, 255); // 品牌蓝，导航高亮竖线
+
+// 状态圆点：在光标处画一个实心圆并预留空间
+static void drawDot(ImU32 color)
+{
+    ImVec2 p = ImGui::GetCursorScreenPos();
+    float cy = p.y + ImGui::GetTextLineHeight() * 0.5f;
+    ImGui::GetWindowDrawList()->AddCircleFilled(ImVec2(p.x + 5.0f, cy), 5.0f, color);
+    ImGui::Dummy(ImVec2(14.0f, ImGui::GetTextLineHeight()));
+    ImGui::SameLine();
+}
+
+static void drawStatusDot(bool ok) { drawDot(ok ? g_colGreen : g_colRed); }
+
+// 标签（Tag）：圆角小标签，用于展示版本等状态信息
+static void drawTag(const char *text, const ImVec4 &bg, const ImVec4 &fg)
+{
+    ImVec2 ts = ImGui::CalcTextSize(text);
+    ImVec2 p = ImGui::GetCursorScreenPos();
+    float h = ImGui::GetFrameHeight() - 4.0f;
+    ImVec2 size(ts.x + 14.0f, h);
+    ImU32 bgc = ImGui::ColorConvertFloat4ToU32(bg);
+    ImGui::GetWindowDrawList()->AddRectFilled(p, ImVec2(p.x + size.x, p.y + size.y), bgc, h * 0.5f);
+    ImGui::SetCursorScreenPos(ImVec2(p.x + 7.0f, p.y + (size.y - ts.y) * 0.5f));
+    ImGui::TextColored(fg, "%s", text);
+    ImGui::SetCursorScreenPos(ImVec2(p.x + size.x, p.y));
+    ImGui::Dummy(size);
+    ImGui::SameLine();
+}
+
+// 导航项：选中时浅蓝背景 + 左侧亮色竖线；悬停时浅灰背景
+static bool navItem(const char *label, bool selected)
+{
+    ImVec2 btnMin = ImGui::GetCursorScreenPos();
+    ImVec2 btnMax = ImVec2(btnMin.x + ImGui::GetContentRegionAvail().x, btnMin.y + 36.0f);
+    bool hovered = ImGui::IsMouseHoveringRect(btnMin, btnMax);
+
+    if (selected || hovered)
+    {
+        ImGui::PushStyleColor(ImGuiCol_Button,
+                              selected ? ImVec4(0.86f, 0.93f, 1.00f, 1.0f) : ImVec4(0.93f, 0.95f, 0.97f, 1.0f));
+        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.88f, 0.94f, 1.00f, 1.0f));
+        ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.82f, 0.90f, 0.98f, 1.0f));
+        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.10f, 0.16f, 0.25f, 1.0f));
+    }
+    bool clicked = ImGui::Button(label, ImVec2(-1, 36));
+    if (selected || hovered)
+        ImGui::PopStyleColor(4);
+
+    // 左侧亮色竖线（仅选中态）
+    if (selected)
+    {
+        ImGui::GetWindowDrawList()->AddRectFilled(
+            ImVec2(btnMin.x + 3.0f, btnMin.y + 8.0f),
+            ImVec2(btnMin.x + 6.0f, btnMax.y - 8.0f),
+            g_colAccent, 1.5f);
+    }
+    return clicked;
+}
+
+// 退出导航项：悬停时浅红背景 + 红色竖线
+static bool navExitItem(const char *label)
+{
+    ImVec2 btnMin = ImGui::GetCursorScreenPos();
+    ImVec2 btnMax = ImVec2(btnMin.x + ImGui::GetContentRegionAvail().x, btnMin.y + 36.0f);
+    bool hovered = ImGui::IsMouseHoveringRect(btnMin, btnMax);
+    if (hovered)
+    {
+        ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.98f, 0.92f, 0.92f, 1.0f));
+        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.98f, 0.92f, 0.92f, 1.0f));
+        ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.96f, 0.86f, 0.86f, 1.0f));
+        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.72f, 0.30f, 0.30f, 1.0f));
+    }
+    bool clicked = ImGui::Button(label, ImVec2(-1, 36));
+    if (hovered)
+        ImGui::PopStyleColor(4);
+    if (hovered)
+    {
+        ImGui::GetWindowDrawList()->AddRectFilled(
+            ImVec2(btnMin.x + 3.0f, btnMin.y + 8.0f),
+            ImVec2(btnMin.x + 6.0f, btnMax.y - 8.0f),
+            IM_COL32(220, 80, 80, 255), 1.5f);
+    }
+    return clicked;
+}
+
 // ==================== 统一配置 ====================
 // 所有持久化设置都写入 acui_settings.ini (acui.ini 由 ImGui 自动管理窗口布局)
 static const char *CFG_FILE = "acui_settings.ini";
@@ -258,6 +349,19 @@ bool App::init(const char *title, int width, int height)
     // 大字号 Logo 字体（26px ≈ 16px 的 1.6 倍）
     m_bigFont = io.Fonts->AddFontFromFileTTF("C:/Windows/Fonts/msyh.ttc", 26.0f, nullptr,
                                              io.Fonts->GetGlyphRangesChineseFull());
+    // 卡片标题字体（加粗，比正文大 2px）
+    m_titleFont = io.Fonts->AddFontFromFileTTF("C:/Windows/Fonts/msyhbd.ttc", 18.0f, nullptr,
+                                               io.Fonts->GetGlyphRangesChineseFull());
+    // 控制台等宽字体（Consolas），缺失的 CJK 字形用微软雅黑补齐
+    m_monoFont = io.Fonts->AddFontFromFileTTF("C:/Windows/Fonts/consola.ttf", 15.0f, nullptr,
+                                              io.Fonts->GetGlyphRangesChineseFull());
+    if (m_monoFont)
+    {
+        ImFontConfig cfg;
+        cfg.MergeMode = true; // 合并到最后一个字体（consola）
+        io.Fonts->AddFontFromFileTTF("C:/Windows/Fonts/msyh.ttc", 15.0f, &cfg,
+                                     io.Fonts->GetGlyphRangesChineseFull());
+    }
 
     ImGui_ImplGlfw_InitForOpenGL(g_window, true);
     ImGui_ImplOpenGL3_Init("#version 330");
@@ -626,7 +730,9 @@ void App::render()
     ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0);
     ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0);
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(8, 8));
+    ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.965f, 0.975f, 0.985f, 1.0f)); // 侧边栏浅色背景
     ImGui::Begin("SideNav", 0, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoBringToFrontOnFocus);
+    ImGui::PopStyleColor();
     ImGui::PopStyleVar(3);
     renderSideNav();
     ImGui::End();
@@ -689,30 +795,12 @@ void App::renderSideNav()
     ImGui::Spacing();
     ImGui::Spacing();
 
-    // 导航按钮
+    // 导航按钮（选中：浅蓝背景 + 左侧亮色竖线）
     const char *navItems[] = {TR("nav.launch"), TR("nav.tools"), TR("nav.settings")};
     for (int i = 0; i < 3; i++)
     {
-        bool selected = (m_activeNav == i);
-
-        // 预检测鼠标悬停：按钮矩形 = 当前光标位置 + 内容区宽度 x 36 高
-        ImVec2 btnMin = ImGui::GetCursorScreenPos();
-        ImVec2 btnMax = ImVec2(btnMin.x + ImGui::GetContentRegionAvail().x, btnMin.y + 36.0f);
-        bool hovered = ImGui::IsMouseHoveringRect(btnMin, btnMax);
-
-        if (selected || hovered)
-        {
-            // 选中或悬停：深蓝背景 + 白色文字
-            ImGui::PushStyleColor(ImGuiCol_Button,
-                                  selected ? ImVec4(0.25f, 0.45f, 0.65f, 1.0f) : ImVec4(0.20f, 0.35f, 0.55f, 1.0f));
-            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.30f, 0.50f, 0.70f, 1.0f));
-            ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.35f, 0.55f, 0.75f, 1.0f));
-            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 1.0f, 1.0f, 1.0f));
-        }
-        if (ImGui::Button(navItems[i], ImVec2(-1, 36)))
+        if (navItem(navItems[i], m_activeNav == i))
             m_activeNav = i;
-        if (selected || hovered)
-            ImGui::PopStyleColor(4);
         ImGui::Spacing();
     }
 
@@ -723,23 +811,8 @@ void App::renderSideNav()
     ImGui::Spacing();
     ImGui::Spacing();
 
-    // 退出按钮同样支持 hover 白字
-    {
-        ImVec2 btnMin = ImGui::GetCursorScreenPos();
-        ImVec2 btnMax = ImVec2(btnMin.x + ImGui::GetContentRegionAvail().x, btnMin.y + 36.0f);
-        bool hovered = ImGui::IsMouseHoveringRect(btnMin, btnMax);
-        if (hovered)
-        {
-            ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.72f, 0.41f, 0.42f, 1.0f));
-            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.80f, 0.48f, 0.48f, 1.0f));
-            ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.62f, 0.34f, 0.35f, 1.0f));
-            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 1.0f, 1.0f, 1.0f));
-        }
-        if (ImGui::Button(TR("nav.exit"), ImVec2(-1, 36)))
-            glfwSetWindowShouldClose(g_window, true);
-        if (hovered)
-            ImGui::PopStyleColor(4);
-    }
+    if (navExitItem(TR("nav.exit")))
+        glfwSetWindowShouldClose(g_window, true);
 }
 
 // ==================== 右侧内容区 ====================
@@ -751,6 +824,42 @@ void App::renderContentArea()
         renderToolsPanel();
     else
         renderSettingsPanel();
+}
+
+// ==================== 卡片容器 ====================
+void App::beginCard(const char *id, const char *title, float width)
+{
+    ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, 8.0f);
+    ImGui::PushStyleVar(ImGuiStyleVar_ChildBorderSize, 1.0f);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(14, 12));
+    ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.985f, 0.988f, 0.993f, 1.0f)); // 卡片浅色背景
+    ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0.87f, 0.90f, 0.93f, 1.0f));     // 卡片边框
+    ImGui::BeginChild(id, ImVec2(width, 0.0f),
+                      ImGuiChildFlags_Borders | ImGuiChildFlags_AutoResizeY | ImGuiChildFlags_AlwaysAutoResize,
+                      ImGuiWindowFlags_NoScrollbar);
+
+    // 标题：加粗 + 略大（视觉层级）
+    if (m_titleFont)
+        ImGui::PushFont(m_titleFont);
+    ImGui::TextUnformatted(title);
+    if (m_titleFont)
+        ImGui::PopFont();
+
+    // 标题下浅色分隔线
+    ImGui::Spacing();
+    ImVec2 sepMin = ImGui::GetCursorScreenPos();
+    ImVec2 sepMax(sepMin.x + ImGui::GetContentRegionAvail().x, sepMin.y + 1.0f);
+    ImGui::GetWindowDrawList()->AddRectFilled(sepMin, sepMax, IM_COL32(228, 232, 238, 255));
+    ImGui::Dummy(ImVec2(0, 6.0f));
+    ImGui::Spacing();
+}
+
+void App::endCard()
+{
+    ImGui::EndChild();
+    ImGui::PopStyleColor(2);
+    ImGui::PopStyleVar(3);
+    ImGui::Spacing();
 }
 
 // ==================== 启动页（环境+Git+服务端+CLI） ====================
@@ -769,104 +878,112 @@ void App::renderLaunchPanel()
 // ==================== 工具页 ====================
 void App::renderToolsPanel()
 {
-    auto t = [](const char *s)
-    {ImGui::Spacing(); ImGui::TextColored(ImVec4(0.3f,0.8f,1.0f,1),"%s",s); ImGui::Separator(); };
-    t(TR("menu.tools"));
-
-    if (ImGui::Checkbox("ImGui Demo", &m_showDemo))
+    beginCard("card_tools", TR("menu.tools"));
     {
-        // 切换 demo 窗口
+        if (ImGui::Checkbox("ImGui Demo", &m_showDemo))
+        {
+            // 切换 demo 窗口
+        }
+        ImGui::Spacing();
+        if (ImGui::Button(TR("menu.refresh"), ImVec2(180, 36)))
+            checkPython();
     }
-    ImGui::Spacing();
-    if (ImGui::Button(TR("menu.refresh"), ImVec2(180, 36)))
-        checkPython();
+    endCard();
 }
 
 // ==================== 设置页（语言 + Git 配置） ====================
 void App::renderSettingsPanel()
 {
-    auto t = [](const char *s)
-    {ImGui::Spacing(); ImGui::TextColored(ImVec4(0.3f,0.8f,1.0f,1),"%s",s); ImGui::Separator(); };
-
     // ---- 语言 ----
-    t(TR("settings.language"));
-    bool en = (LangSys::I().lang() == Lang::English);
-    bool cn = (LangSys::I().lang() == Lang::Chinese);
-    if (ImGui::RadioButton(TR("settings.english"), en))
-        LangSys::I().setLang(Lang::English);
-    ImGui::Spacing();
-    if (ImGui::RadioButton(TR("settings.chinese"), cn))
-        LangSys::I().setLang(Lang::Chinese);
+    beginCard("card_lang", TR("settings.language"));
+    {
+        bool en = (LangSys::I().lang() == Lang::English);
+        bool cn = (LangSys::I().lang() == Lang::Chinese);
+        if (ImGui::RadioButton(TR("settings.english"), en))
+            LangSys::I().setLang(Lang::English);
+        ImGui::Spacing();
+        if (ImGui::RadioButton(TR("settings.chinese"), cn))
+            LangSys::I().setLang(Lang::Chinese);
+    }
+    endCard();
 
     // ---- 程序地址 ----
-    t(TR("settings.program_dir"));
-    ImGui::SetNextItemWidth(320);
-    static char programBuf[512] = "";
-    strncpy_s(programBuf, m_programDir.c_str(), sizeof(programBuf) - 1);
-    if (ImGui::InputText("##pd", programBuf, sizeof(programBuf)))
+    beginCard("card_prog", TR("settings.program_dir"));
     {
-        m_programDir = programBuf;
-        updateProjectPaths();
-    }
-    ImGui::SameLine();
-    ImGui::PushID("browse_program");
-    if (ImGui::Button(TR("git.browse"), ImVec2(80, 0)))
-    {
-        char path[MAX_PATH] = {};
-        BROWSEINFOA bi = {};
-        bi.lpszTitle = "Select program directory";
-        bi.ulFlags = BIF_RETURNONLYFSDIRS | BIF_NEWDIALOGSTYLE;
-        LPITEMIDLIST pidl = SHBrowseForFolderA(&bi);
-        if (pidl)
+        float bw = 80.0f;
+        ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - bw - ImGui::GetStyle().ItemSpacing.x);
+        static char programBuf[512] = "";
+        strncpy_s(programBuf, m_programDir.c_str(), sizeof(programBuf) - 1);
+        if (ImGui::InputText("##pd", programBuf, sizeof(programBuf)))
         {
-            if (SHGetPathFromIDListA(pidl, path))
-            {
-                m_programDir = path;
-                updateProjectPaths();
-            }
-            CoTaskMemFree(pidl);
+            m_programDir = programBuf;
+            updateProjectPaths();
         }
+        ImGui::SameLine();
+        ImGui::PushID("browse_program");
+        if (ImGui::Button(TR("git.browse"), ImVec2(bw, 0)))
+        {
+            char path[MAX_PATH] = {};
+            BROWSEINFOA bi = {};
+            bi.lpszTitle = "Select program directory";
+            bi.ulFlags = BIF_RETURNONLYFSDIRS | BIF_NEWDIALOGSTYLE;
+            LPITEMIDLIST pidl = SHBrowseForFolderA(&bi);
+            if (pidl)
+            {
+                if (SHGetPathFromIDListA(pidl, path))
+                {
+                    m_programDir = path;
+                    updateProjectPaths();
+                }
+                CoTaskMemFree(pidl);
+            }
+        }
+        ImGui::PopID();
+        ImGui::TextDisabled("  %s %s", TR("git.dir"), m_projectRoot.c_str());
     }
-    ImGui::PopID();
-    ImGui::TextDisabled("  %s %s", TR("git.dir"), m_projectRoot.c_str());
+    endCard();
 
     // ---- Git 下载配置 ----
-    t(TR("git.title"));
-    ImGui::Text("%s", TR("git.url"));
-    ImGui::SetNextItemWidth(400);
-    ImGui::InputText("##gu", m_gitUrl, sizeof(m_gitUrl));
+    beginCard("card_gitset", TR("git.title"));
+    {
+        ImGui::Text("%s", TR("git.url"));
+        ImGui::SetNextItemWidth(-1);
+        ImGui::InputText("##gu", m_gitUrl, sizeof(m_gitUrl));
 
-    // 目标目录直接使用 m_projectRoot（std::string 需要缓冲）
-    ImGui::Text("%s", TR("git.dir"));
-    ImGui::SetNextItemWidth(320);
-    static char projectBuf[512] = "";
-    strncpy_s(projectBuf, m_projectRoot.c_str(), sizeof(projectBuf) - 1);
-    if (ImGui::InputText("##gd", projectBuf, sizeof(projectBuf)))
-    {
-        m_projectRoot = projectBuf;
-        m_cliRoot = m_projectRoot + "/src/cli";
-        m_serverRoot = m_projectRoot + "/src/server";
-    }
-    ImGui::SameLine();
-    ImGui::PushID("browse_project");
-    if (ImGui::Button(TR("git.browse"), ImVec2(80, 0)))
-    {
-        char path[MAX_PATH] = {};
-        BROWSEINFOA bi = {};
-        bi.lpszTitle = "Select target directory";
-        bi.ulFlags = BIF_RETURNONLYFSDIRS | BIF_NEWDIALOGSTYLE;
-        LPITEMIDLIST pidl = SHBrowseForFolderA(&bi);
-        if (pidl)
+        // 目标目录直接使用 m_projectRoot（std::string 需要缓冲）
+        ImGui::Text("%s", TR("git.dir"));
+        float bw = 80.0f;
+        ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - bw - ImGui::GetStyle().ItemSpacing.x);
+        static char projectBuf[512] = "";
+        strncpy_s(projectBuf, m_projectRoot.c_str(), sizeof(projectBuf) - 1);
+        if (ImGui::InputText("##gd", projectBuf, sizeof(projectBuf)))
         {
-            if (SHGetPathFromIDListA(pidl, path))
-                m_projectRoot = path;
-            CoTaskMemFree(pidl);
+            m_projectRoot = projectBuf;
+            m_cliRoot = m_projectRoot + "/src/cli";
+            m_serverRoot = m_projectRoot + "/src/server";
         }
-        // 目标目录 = 项目根
-        m_cliRoot = m_projectRoot + "/src/cli";
-        m_serverRoot = m_projectRoot + "/src/server";
+        ImGui::SameLine();
+        ImGui::PushID("browse_project");
+        if (ImGui::Button(TR("git.browse"), ImVec2(bw, 0)))
+        {
+            char path[MAX_PATH] = {};
+            BROWSEINFOA bi = {};
+            bi.lpszTitle = "Select target directory";
+            bi.ulFlags = BIF_RETURNONLYFSDIRS | BIF_NEWDIALOGSTYLE;
+            LPITEMIDLIST pidl = SHBrowseForFolderA(&bi);
+            if (pidl)
+            {
+                if (SHGetPathFromIDListA(pidl, path))
+                    m_projectRoot = path;
+                CoTaskMemFree(pidl);
+            }
+            // 目标目录 = 项目根
+            m_cliRoot = m_projectRoot + "/src/cli";
+            m_serverRoot = m_projectRoot + "/src/server";
+        }
+        ImGui::PopID();
     }
-    ImGui::PopID();
+    endCard();
 }
 
 // ==================== 控制台 ====================
@@ -874,7 +991,12 @@ void App::renderLogArea()
 {
     float ih = 28.0f; // 始终保留输入框高度
     float th = ImGui::GetFrameHeightWithSpacing() + 4;
-    ImGui::TextColored(ImVec4(0.5f, 0.8f, 1.0f, 1), "%s", TR("console.title"));
+    // 标题（加粗，视觉层级）
+    if (m_titleFont)
+        ImGui::PushFont(m_titleFont);
+    ImGui::TextColored(ImVec4(0.15f, 0.30f, 0.45f, 1.0f), "%s", TR("console.title"));
+    if (m_titleFont)
+        ImGui::PopFont();
     ImGui::SameLine();
     if (ImGui::SmallButton(TR("console.clear")))
         m_console.ClearLog();
@@ -917,7 +1039,7 @@ void App::renderLogArea()
         }
     };
     m_console.Draw("##con", ImVec2(0, -ih - th), true, send,
-                   "train | resume | predict | node | verify | menu | server");
+                   "train | resume | predict | node | verify | menu | server", m_monoFont);
 }
 
 // ==================== 状态栏 ====================
@@ -932,12 +1054,12 @@ void App::renderStatusBar()
     ImGui::Begin("SB", 0, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoBringToFrontOnFocus);
     ImGui::PopStyleVar(3);
 
+    // Python 状态：绿/红圆点 + 文字
+    drawDot(m_pythonOk ? g_colGreen : g_colRed);
     if (m_pythonOk)
         ImGui::TextColored(ImVec4(0.11f, 0.41f, 0.33f, 1), "%s", TR("status.python_ok"));
     else
         ImGui::TextColored(ImVec4(0.72f, 0.41f, 0.42f, 1), "%s", TR("status.python_no"));
-    ImGui::SameLine();
-    // ImGui::Separator();
     ImGui::SameLine();
     ImGui::Text("%s %s", TR("status.project"), m_projectRoot.c_str());
 
@@ -961,131 +1083,177 @@ void App::renderStatusBar()
 // ==================== 环境面板（含 Git 下载） ====================
 void App::renderEnvPanel()
 {
-    auto t = [](const char *s)
-    {ImGui::Spacing(); ImGui::TextColored(ImVec4(0.3f,0.8f,1.0f,1),"%s",s); ImGui::Separator(); };
-    t(TR("env.python"));
-    if (m_pythonOk)
-    {
-        ImGui::TextColored(ImVec4(0.11f, 0.41f, 0.33f, 1), "  %s", TR("env.ready"));
-        ImGui::SameLine();
-        if (ImGui::SmallButton(TR("env.recheck")))
-            checkPython();
-        ImGui::Text("  %s %s", TR("env.version"), m_pythonVersion.c_str());
-    }
-    else
-    {
-        ImGui::TextColored(ImVec4(0.72f, 0.41f, 0.42f, 1), "  %s", TR("env.nofound"));
-        if (ImGui::Button(TR("env.detect"), ImVec2(120, 30)))
-            checkPython();
-    }
-    t(TR("env.paths"));
-    ImGui::Text("  %s %s", TR("env.root"), m_projectRoot.c_str());
-    ImGui::Text("  %s %s", TR("env.cli"), m_cliRoot.c_str());
-    ImGui::Text("  %s %s", TR("env.srv"), m_serverRoot.c_str());
-    t(TR("env.actions"));
-    if (ImGui::Button(TR("env.install_cli"), ImVec2(180, 35)))
-        startProcess("install CLI", "-m pip install -r requirements.txt", m_cliRoot);
-    ImGui::SameLine();
-    if (ImGui::Button(TR("env.install_srv"), ImVec2(180, 35)))
-        startProcess("install server", "-m pip install -r requirements.txt", m_serverRoot);
-    ImGui::SameLine();
-    if (ImGui::Button(TR("env.verify"), ImVec2(130, 35)))
-        startProcess("verify env", "verify_env.py", m_projectRoot);
-    t(TR("env.venv"));
-    if (ImGui::Button(TR("env.venv"), ImVec2(220, 35)))
-        createVenv(false);
-    // .venv 已存在时提供“删除并重建”，避免 Permission denied
-    if (_access((m_projectRoot + "/.venv").c_str(), 0) == 0)
-    {
-        ImGui::SameLine();
-        if (ImGui::Button(TR("env.venv_del"), ImVec2(160, 35)))
-            createVenv(true);
-    }
+    float availW = ImGui::GetContentRegionAvail().x;
+    float gap = ImGui::GetStyle().ItemSpacing.x;
+    float colW = (availW - gap) / 2.0f;
+    if (colW < 240.0f)
+        colW = availW; // 窗口过窄时退化为单列
 
-    // ---- Git 操作（URL/目录在设置页配置） ----
-    t(TR("git.title"));
-    ImGui::TextDisabled("  %s %s", TR("git.url"), m_gitUrl);
-    ImGui::TextDisabled("  %s %s", TR("git.dir"), m_projectRoot.c_str());
-    ImGui::Spacing();
-    if (m_gitCloning)
+    // 左列：Python 状态 + 路径
+    ImGui::BeginGroup();
     {
-        ImGui::TextColored(ImVec4(1.0f, 0.65f, 0.0f, 1), "%s", TR("git.cloning"));
-    }
-    else
-    {
-        if (ImGui::Button(TR("git.clone"), ImVec2(200, 36)))
+        beginCard("card_py", TR("env.python"), colW);
         {
-            std::string u(m_gitUrl), d(m_projectRoot);
-            if (!u.empty() && !d.empty())
-                startGitClone(u, d);
-            else
-                addError(std::string(TR("git.fill")));
-        }
-        ImGui::SameLine();
-        if (ImGui::Button(TR("git.check"), ImVec2(120, 36)))
-        {
-            if (_access(m_projectRoot.c_str(), 0) == 0)
+            // 状态行：绿/红圆点 + 状态文字 + 版本标签 + 重新检测
+            drawStatusDot(m_pythonOk);
+            ImGui::TextUnformatted(m_pythonOk ? TR("env.ready") : TR("env.nofound"));
+            if (m_pythonOk)
             {
-                addSuccess(std::string(TR("git.exists")));
-                m_cliRoot = m_projectRoot + "/src/cli";
-                m_serverRoot = m_projectRoot + "/src/server";
+                ImGui::SameLine();
+                drawTag((std::string(TR("env.version")) + " " + m_pythonVersion).c_str(),
+                        ImVec4(0.89f, 0.94f, 1.00f, 1.0f), ImVec4(0.10f, 0.32f, 0.58f, 1.0f));
+            }
+            ImGui::SameLine();
+            if (ImGui::SmallButton(TR("env.recheck")))
                 checkPython();
+        }
+        endCard();
+
+        beginCard("card_paths", TR("env.paths"), colW);
+        {
+            ImGui::TextColored(ImVec4(0.55f, 0.58f, 0.63f, 1.0f), "%s", TR("env.root"));
+            ImGui::SameLine();
+            ImGui::TextWrapped("%s", m_projectRoot.c_str());
+            ImGui::TextColored(ImVec4(0.55f, 0.58f, 0.63f, 1.0f), "%s", TR("env.cli"));
+            ImGui::SameLine();
+            ImGui::TextWrapped("%s", m_cliRoot.c_str());
+            ImGui::TextColored(ImVec4(0.55f, 0.58f, 0.63f, 1.0f), "%s", TR("env.srv"));
+            ImGui::SameLine();
+            ImGui::TextWrapped("%s", m_serverRoot.c_str());
+        }
+        endCard();
+    }
+    ImGui::EndGroup();
+
+    ImGui::SameLine();
+
+    // 右列：快捷操作 + GitHub 下载
+    ImGui::BeginGroup();
+    {
+        beginCard("card_actions", TR("env.actions"), colW);
+        {
+            float bw = (ImGui::GetContentRegionAvail().x - gap) / 2.0f;
+            if (ImGui::Button(TR("env.install_cli"), ImVec2(bw, 34)))
+                startProcess("install CLI", "-m pip install -r requirements.txt", m_cliRoot);
+            ImGui::SameLine();
+            if (ImGui::Button(TR("env.install_srv"), ImVec2(bw, 34)))
+                startProcess("install server", "-m pip install -r requirements.txt", m_serverRoot);
+            if (ImGui::Button(TR("env.verify"), ImVec2(-1, 34)))
+                startProcess("verify env", "verify_env.py", m_projectRoot);
+            ImGui::Spacing();
+            if (ImGui::Button(TR("env.venv"), ImVec2(-1, 34)))
+                createVenv(false);
+            // .venv 已存在时提供“删除并重建”，避免 Permission denied
+            if (_access((m_projectRoot + "/.venv").c_str(), 0) == 0)
+            {
+                if (ImGui::Button(TR("env.venv_del"), ImVec2(-1, 34)))
+                    createVenv(true);
+            }
+        }
+        endCard();
+
+        beginCard("card_git", TR("git.title"), colW);
+        {
+            ImGui::TextColored(ImVec4(0.55f, 0.58f, 0.63f, 1.0f), "%s", TR("git.url"));
+            ImGui::TextWrapped("%s", m_gitUrl);
+            ImGui::Spacing();
+            ImGui::TextColored(ImVec4(0.55f, 0.58f, 0.63f, 1.0f), "%s", TR("git.dir"));
+            ImGui::TextWrapped("%s", m_projectRoot.c_str());
+            ImGui::Spacing();
+            if (m_gitCloning)
+            {
+                ImGui::TextColored(ImVec4(1.0f, 0.65f, 0.0f, 1.0f), "%s", TR("git.cloning"));
             }
             else
-                addWarn(std::string(TR("git.none")));
+            {
+                if (ImGui::Button(TR("git.clone"), ImVec2(-1, 36)))
+                {
+                    std::string u(m_gitUrl), d(m_projectRoot);
+                    if (!u.empty() && !d.empty())
+                        startGitClone(u, d);
+                    else
+                        addError(std::string(TR("git.fill")));
+                }
+                if (ImGui::Button(TR("git.check"), ImVec2(-1, 36)))
+                {
+                    if (_access(m_projectRoot.c_str(), 0) == 0)
+                    {
+                        addSuccess(std::string(TR("git.exists")));
+                        m_cliRoot = m_projectRoot + "/src/cli";
+                        m_serverRoot = m_projectRoot + "/src/server";
+                        checkPython();
+                    }
+                    else
+                        addWarn(std::string(TR("git.none")));
+                }
+            }
         }
+        endCard();
     }
+    ImGui::EndGroup();
 }
 
 // ==================== 服务端面板 ====================
 void App::renderServerPanel()
 {
-    auto t = [](const char *s)
-    {ImGui::Spacing(); ImGui::TextColored(ImVec4(0.3f,0.8f,1.0f,1),"%s",s); ImGui::Separator(); };
-    t(TR("srv.title"));
-    if (m_serverStatus == 1)
-        ImGui::TextColored(ImVec4(0.11f, 0.41f, 0.33f, 1), "  %s", TR("srv.on"));
-    else if (m_serverStatus == 0)
-        ImGui::TextColored(ImVec4(0.72f, 0.41f, 0.42f, 1), "  %s", TR("srv.off"));
-    else
-        ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1), "  %s", TR("srv.unknown"));
-    if (ImGui::Button(TR("srv.start"), ImVec2(180, 40)))
-        startProcess("start server", "runserver.py", m_serverRoot);
-    ImGui::SameLine();
-    if (ImGui::Button(TR("srv.check"), ImVec2(130, 40)))
+    beginCard("card_srv", TR("srv.title"));
     {
-        m_serverStatus = m_http.ping() ? 1 : 0;
+        // 状态行：圆点 + 状态文字
+        drawDot(m_serverStatus == 1 ? g_colGreen : (m_serverStatus == 0 ? g_colRed : g_colGray));
         if (m_serverStatus == 1)
-            addSuccess(TR("srv.online"));
+            ImGui::TextColored(ImVec4(0.11f, 0.41f, 0.33f, 1.0f), "%s", TR("srv.on"));
+        else if (m_serverStatus == 0)
+            ImGui::TextColored(ImVec4(0.72f, 0.41f, 0.42f, 1.0f), "%s", TR("srv.off"));
         else
-            addWarn(TR("srv.offline"));
+            ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f), "%s", TR("srv.unknown"));
+        ImGui::Spacing();
+
+        if (ImGui::Button(TR("srv.start"), ImVec2(-1, 40)))
+            startProcess("start server", "runserver.py", m_serverRoot);
+        float bw = (ImGui::GetContentRegionAvail().x - ImGui::GetStyle().ItemSpacing.x) / 2.0f;
+        if (ImGui::Button(TR("srv.check"), ImVec2(bw, 36)))
+        {
+            m_serverStatus = m_http.ping() ? 1 : 0;
+            if (m_serverStatus == 1)
+                addSuccess(TR("srv.online"));
+            else
+                addWarn(TR("srv.offline"));
+        }
+        ImGui::SameLine();
+        if (ImGui::Button(TR("srv.api"), ImVec2(bw, 36)))
+            ShellExecuteA(0, "open", "http://127.0.0.1:13138/upload", 0, 0, SW_SHOW);
     }
-    ImGui::SameLine();
-    if (ImGui::Button(TR("srv.api"), ImVec2(120, 30)))
-        ShellExecuteA(0, "open", "http://127.0.0.1:13138/upload", 0, 0, SW_SHOW);
+    endCard();
 }
 
 // ==================== CLI 面板 ====================
 void App::renderCliPanel()
 {
-    auto t = [](const char *s)
-    {ImGui::Spacing(); ImGui::TextColored(ImVec4(0.3f,0.8f,1.0f,1),"%s",s); ImGui::Separator(); };
-    t(TR("cli.train"));
-    if (ImGui::Button(TR("cli.btn_train"), ImVec2(180, 40)))
-        startProcess("train", "main.py --mode 1", m_cliRoot);
-    ImGui::SameLine();
-    if (ImGui::Button(TR("cli.btn_resume"), ImVec2(180, 40)))
-        startProcess("resume", "main.py --mode 1 --resume auto", m_cliRoot);
-    ImGui::SameLine();
-    if (ImGui::Button(TR("cli.btn_predict"), ImVec2(180, 40)))
-        startProcess("predict", "main.py --mode 2", m_cliRoot);
-    t(TR("cli.node"));
-    if (ImGui::Button(TR("cli.btn_node"), ImVec2(180, 40)))
-        startProcess("node", "main.py --mode 4", m_cliRoot);
-    ImGui::SameLine();
-    if (ImGui::Button(TR("cli.btn_verify"), ImVec2(180, 40)))
-        startProcess("verify", "main.py --mode 3", m_cliRoot);
-    ImGui::SameLine();
-    if (ImGui::Button(TR("cli.btn_menu"), ImVec2(180, 40)))
-        startProcess("menu", "main.py", m_cliRoot);
+    float gap = ImGui::GetStyle().ItemSpacing.x;
+
+    beginCard("card_cli_train", TR("cli.train"));
+    {
+        float bw = (ImGui::GetContentRegionAvail().x - gap) / 2.0f;
+        if (ImGui::Button(TR("cli.btn_train"), ImVec2(bw, 40)))
+            startProcess("train", "main.py --mode 1", m_cliRoot);
+        ImGui::SameLine();
+        if (ImGui::Button(TR("cli.btn_resume"), ImVec2(bw, 40)))
+            startProcess("resume", "main.py --mode 1 --resume auto", m_cliRoot);
+        if (ImGui::Button(TR("cli.btn_predict"), ImVec2(-1, 40)))
+            startProcess("predict", "main.py --mode 2", m_cliRoot);
+    }
+    endCard();
+
+    beginCard("card_cli_node", TR("cli.node"));
+    {
+        float bw = (ImGui::GetContentRegionAvail().x - gap) / 2.0f;
+        if (ImGui::Button(TR("cli.btn_node"), ImVec2(bw, 40)))
+            startProcess("node", "main.py --mode 4", m_cliRoot);
+        ImGui::SameLine();
+        if (ImGui::Button(TR("cli.btn_verify"), ImVec2(bw, 40)))
+            startProcess("verify", "main.py --mode 3", m_cliRoot);
+        if (ImGui::Button(TR("cli.btn_menu"), ImVec2(-1, 40)))
+            startProcess("menu", "main.py", m_cliRoot);
+    }
+    endCard();
 }

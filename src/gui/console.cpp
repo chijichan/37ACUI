@@ -49,14 +49,23 @@ void ConsoleWidget::AddLog(const std::string &line)
 
 void ConsoleWidget::Draw(const char *title, ImVec2 size, bool hasInput,
                          std::function<void(const std::string &)> onCommand,
-                         const char *hint)
+                         const char *hint, ImFont *monoFont)
 {
+    // 深色终端配色
+    const ImVec4 darkBg(0.105f, 0.115f, 0.135f, 1.00f);
+    const ImVec4 darkBgActive(0.135f, 0.145f, 0.165f, 1.00f);
+    const ImVec4 lightText(0.88f, 0.91f, 0.95f, 1.00f);
+
     // 用 BeginChild 包裹确保 InputTextMultiline 占满可用区域
     ImGui::BeginChild("ConsoleOut", size, false, ImGuiWindowFlags_HorizontalScrollbar);
 
     // 输出区域 — InputTextMultiline 只读模式，原生支持框选和 Ctrl+C
-    ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0.94f, 0.95f, 0.96f, 1.00f));
-    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.06f, 0.09f, 0.16f, 1.00f));
+    ImGui::PushStyleColor(ImGuiCol_FrameBg, darkBg);
+    ImGui::PushStyleColor(ImGuiCol_FrameBgHovered, darkBgActive);
+    ImGui::PushStyleColor(ImGuiCol_FrameBgActive, darkBgActive);
+    ImGui::PushStyleColor(ImGuiCol_Text, lightText);
+    if (monoFont)
+        ImGui::PushFont(monoFont); // 等宽字体，更接近专业终端
 
     static char consoleBuf[65536 * 4];
     strncpy_s(consoleBuf, m_fullText.c_str(), sizeof(consoleBuf) - 1);
@@ -65,7 +74,9 @@ void ConsoleWidget::Draw(const char *title, ImVec2 size, bool hasInput,
     ImGui::InputTextMultiline("##console_out", consoleBuf, sizeof(consoleBuf),
                               ImVec2(-1, -1), ImGuiInputTextFlags_ReadOnly);
 
-    ImGui::PopStyleColor(2);
+    if (monoFont)
+        ImGui::PopFont();
+    ImGui::PopStyleColor(4);
 
     ImGui::EndChild();
 
@@ -77,6 +88,12 @@ void ConsoleWidget::Draw(const char *title, ImVec2 size, bool hasInput,
         m_reclaimFocus = false;
 
         ImGui::PushItemWidth(-60);
+        ImGui::PushStyleColor(ImGuiCol_FrameBg, darkBg);
+        ImGui::PushStyleColor(ImGuiCol_FrameBgHovered, darkBgActive);
+        ImGui::PushStyleColor(ImGuiCol_FrameBgActive, darkBgActive);
+        ImGui::PushStyleColor(ImGuiCol_Text, lightText);
+        if (monoFont)
+            ImGui::PushFont(monoFont);
         ImGuiInputTextFlags flags = ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_CallbackHistory;
         if (ImGui::InputText("##cmd", m_inputBuf, sizeof(m_inputBuf),
                              flags, &TextEditCallbackStub, (void *)this))
@@ -92,6 +109,9 @@ void ConsoleWidget::Draw(const char *title, ImVec2 size, bool hasInput,
             s[0] = '\0';
             reclaim = true;
         }
+        if (monoFont)
+            ImGui::PopFont();
+        ImGui::PopStyleColor(4);
         ImGui::PopItemWidth();
 
         ImGui::SameLine();

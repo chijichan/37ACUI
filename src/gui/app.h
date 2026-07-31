@@ -52,6 +52,10 @@ private:
     void renderToolsPanel();    // 工具页
     void renderSettingsPanel(); // 设置页（语言）
 
+    // 卡片布局：圆角 + 浅色背景 + 边框 + 加粗标题
+    void beginCard(const char *id, const char *title, float width = -1.0f);
+    void endCard();
+
     void procThreadFunc(const std::string &name, const std::string &cmd,
                         const std::string &cwd);
     void venvThreadFunc(bool recreate); // 后台线程：删除旧 .venv + 创建新环境
@@ -70,7 +74,9 @@ private:
     std::thread m_procThread;
     ConsoleWidget m_console;
     void *m_procStdinWrite = nullptr;
-    ImFont *m_bigFont = nullptr; // 大字号 Logo 字体
+    ImFont *m_bigFont = nullptr;   // 大字号 Logo 字体
+    ImFont *m_titleFont = nullptr; // 卡片标题字体（加粗、略大）
+    ImFont *m_monoFont = nullptr;  // 控制台等宽字体
     char m_gitUrl[256] = "https://github.com/chijichan/37AC.git";
     bool m_gitCloning = false;
     int m_winX = 100, m_winY = 50, m_winW = 1280, m_winH = 800;
