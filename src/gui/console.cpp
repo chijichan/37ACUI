@@ -69,11 +69,18 @@ void ConsoleWidget::Draw(const char *title, ImVec2 size, bool hasInput,
     if (monoFont)
         ImGui::PushFont(monoFont); // 等宽字体，更接近专业终端
 
-    static char consoleBuf[65536 * 4];
-    strncpy_s(consoleBuf, m_fullText.c_str(), sizeof(consoleBuf) - 1);
-    consoleBuf[sizeof(consoleBuf) - 1] = '\0';
+    // 仅当日志内容变化时才刷新显示缓冲，避免每帧 strncpy 最多 256KB 文本
+    // （此前 AddLog 保留最新 500KB，而显示缓冲只拷开头 256KB，日志超限后新内容看不到；
+    //   现在改为保留最新 256KB）
+    if (m_fullText.size() != m_displaySize)
+    {
+        m_displaySize = m_fullText.size();
+        m_displayBuf = m_fullText;
+        if (m_displayBuf.size() > kMaxDisplayBytes)
+            m_displayBuf.erase(0, m_displayBuf.size() - kMaxDisplayBytes); // 保留最新部分
+    }
 
-    ImGui::InputTextMultiline("##console_out", consoleBuf, sizeof(consoleBuf),
+    ImGui::InputTextMultiline("##console_out", &m_displayBuf[0], (int)m_displayBuf.size() + 1,
                               ImVec2(-1, -1), ImGuiInputTextFlags_ReadOnly);
 
     if (monoFont)

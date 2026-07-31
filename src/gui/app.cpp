@@ -156,6 +156,14 @@ void App::updateProjectPaths()
     m_projectRoot = base + "/project/37AC";
     m_cliRoot = m_projectRoot + "/src/cli";
     m_serverRoot = m_projectRoot + "/src/server";
+    refreshVenvState();
+}
+
+// 缓存 .venv 是否存在。渲染循环中查询文件系统（_access）成本高：
+// 路径不存在时要逐级解析整条路径链，100fps 下会造成持续磁盘 IO。
+void App::refreshVenvState()
+{
+    m_venvExists = (_access((m_projectRoot + "/.venv").c_str(), 0) == 0);
 }
 
 void App::saveConfig()
@@ -323,7 +331,10 @@ bool App::init(const char *title, int width, int height)
     ImPlot::CreateContext();
     ImGuiIO &io = ImGui::GetIO();
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
-    io.IniFilename = "acui.ini";
+    // 手动模式管理窗口布局 ini：IniFilename=NULL 时 ImGui 不会自动加载/保存，
+    // 避免默认每 5 秒写一次 acui.ini 造成的持续磁盘写入。改为显式加载（下方）
+    // 与退出时显式保存（run 末尾）。
+    io.IniFilename = NULL;
 
     ImGui::StyleColorsLight();
     ImGuiStyle &s = ImGui::GetStyle();
@@ -376,6 +387,9 @@ bool App::init(const char *title, int width, int height)
                                      io.Fonts->GetGlyphRangesChineseSimplifiedCommon());
     }
 
+    // 手动加载上次保存的窗口布局（IniFilename=NULL 时 NewFrame 不会自动加载）
+    ImGui::LoadIniSettingsFromDisk("acui.ini");
+
     ImGui_ImplGlfw_InitForOpenGL(g_window, true);
     ImGui_ImplOpenGL3_Init("#version 330");
 
@@ -410,6 +424,10 @@ void App::addLog(const std::string &msg, unsigned int)
     char buf[32];
     strftime(buf, sizeof(buf), "[%H:%M:%S]", &tm);
     m_console.AddLog(std::string(buf) + " " + msg);
+    // 通知主循环重绘：后台线程（进程输出/Git/venv）也可能调用本函数
+    m_uiDirty = true;
+    if (g_window)
+        glfwPostEmptyEvent(); // 线程安全，唤醒阻塞中的 glfwWaitEventsTimeout
 }
 
 // ==================== Python ====================
@@ -520,6 +538,7 @@ void App::venvThreadFunc(bool recreate)
         if (o.find("Permission denied") != std::string::npos)
             addError(std::string(TR("env.venv_perm")));
     }
+    refreshVenvState(); // venv 创建/删除后立即刷新缓存
     m_procRunning = false;
 }
 
@@ -566,9 +585,11 @@ void App::procThreadFunc(const std::string &name, const std::string &cmd,
         addError(std::string("[error] ") + name + " code=" + std::to_string(GetLastError()));
         CloseHandle(hOutR);
         m_procRunning = false;
+        m_procPid = 0;
         m_procStdinWrite = nullptr;
         return;
     }
+    m_procPid = pi.dwProcessId; // 记录 PID，供 stopProcess 精确终止
     CloseHandle(pi.hThread);
 
     char buf[4096];
@@ -624,6 +645,7 @@ void App::procThreadFunc(const std::string &name, const std::string &cmd,
     else
         addError(std::string("[done] ") + name + " exit=" + std::to_string(ec));
     m_procRunning = false;
+    m_procPid = 0;
     m_procStdinWrite = nullptr;
 }
 
@@ -657,7 +679,17 @@ void App::stopProcess()
         CloseHandle(m_procStdinWrite);
         m_procStdinWrite = nullptr;
     }
-    system("taskkill /f /im python.exe >nul 2>&1");
+    // 只终止自己启动的子进程（按 PID），不再 taskkill 系统上所有 python.exe
+    unsigned long pid = m_procPid.load();
+    if (pid != 0)
+    {
+        HANDLE h = OpenProcess(PROCESS_TERMINATE, FALSE, (DWORD)pid);
+        if (h)
+        {
+            TerminateProcess(h, 1);
+            CloseHandle(h);
+        }
+    }
 }
 
 // ==================== Git ====================
@@ -685,34 +717,97 @@ void App::startGitClone(const std::string &url, const std::string &dir)
         char buf[4096];
         while(fgets(buf,sizeof(buf),pipe)){std::string l(buf); while(!l.empty()&&(l.back()=='\n'||l.back()=='\r'))l.pop_back(); if(!l.empty())addInfo("  "+stripAnsi(l));}
         int ec=_pclose(pipe);
-        if(ec==0){addSuccess("[Git] clone success!"); m_projectRoot=dir; m_cliRoot=dir+"/src/cli"; m_serverRoot=dir+"/src/server"; checkPython();}
+        if(ec==0){addSuccess("[Git] clone success!"); m_projectRoot=dir; m_cliRoot=dir+"/src/cli"; m_serverRoot=dir+"/src/server"; refreshVenvState(); checkPython();}
         else addError(std::string("[Git] clone failed exit=")+std::to_string(ec));
         m_procRunning=m_gitCloning=false; });
 }
 
-// ==================== 主循环 ====================
+// ==================== 渲染一帧 ====================
+void App::renderFrame()
+{
+    ImGui_ImplOpenGL3_NewFrame();
+    ImGui_ImplGlfw_NewFrame();
+    ImGui::NewFrame();
+    render();
+    ImGui::Render();
+    int dw, dh;
+    glfwGetFramebufferSize(g_window, &dw, &dh);
+    glViewport(0, 0, dw, dh);
+    glClearColor(1.00f, 1.00f, 1.00f, 1.00f); // 白色背景（与浅色主题一致）
+    glClear(GL_COLOR_BUFFER_BIT);
+    ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+    glfwSwapBuffers(g_window);
+}
+
+// ==================== 主循环（按需渲染） ====================
+// 静态 UI 不重绘：GPU/CPU 占用归零；输入事件、窗口变化、后台日志更新时立即重绘
 void App::run()
 {
+    ImGuiIO &io = ImGui::GetIO();
+    double lastMX = -1e9, lastMY = -1e9;
+    int lastFW = -1, lastFH = -1;
+    bool lastHovered = false;
+
     while (!glfwWindowShouldClose(g_window))
     {
-        glfwPollEvents();
-        ImGui_ImplOpenGL3_NewFrame();
-        ImGui_ImplGlfw_NewFrame();
-        ImGui::NewFrame();
-        render();
-        ImGui::Render();
-        int dw, dh;
-        glfwGetFramebufferSize(g_window, &dw, &dh);
-        glViewport(0, 0, dw, dh);
-        glClearColor(1.00f, 1.00f, 1.00f, 1.00f); // 白色背景（与浅色主题一致）
-        glClear(GL_COLOR_BUFFER_BIT);
-        ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
-        glfwSwapBuffers(g_window);
-        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        // 阻塞等待输入/窗口事件（最多 20ms）；事件到达立即唤醒，无事件低功耗等待
+        glfwWaitEventsTimeout(0.02);
+
+        // 窗口最小化时跳过（framebuffer 尺寸为 0）
+        int fw = 0, fh = 0;
+        glfwGetFramebufferSize(g_window, &fw, &fh);
+        if (fw == 0 || fh == 0)
+            continue;
+
+        // ---- 判断本帧是否需要重绘 ----
+        bool needRender = m_uiDirty.load(); // 后台线程日志/状态更新
+        if (!needRender && m_showDemo)
+            needRender = true; // ImGui Demo 含动画，需持续渲染
+        if (!needRender && io.WantTextInput)
+            needRender = true; // 输入框聚焦时保留光标闪烁动画
+        if (!needRender)
+        {
+            double mx, my;
+            glfwGetCursorPos(g_window, &mx, &my);
+            if (mx != lastMX || my != lastMY)
+                needRender = true; // 鼠标移动（含 hover 变化）
+        }
+        if (!needRender)
+            for (int i = 0; i < 5; i++)
+                if (io.MouseDown[i]) { needRender = true; break; }
+        if (!needRender && io.MouseWheel != 0.0f)
+            needRender = true;
+        if (!needRender)
+            for (int i = 0; i < IM_ARRAYSIZE(io.KeysData); i++)
+                if (io.KeysData[i].Down) { needRender = true; break; } // 任一按键按住（含打字输入）
+        if (!needRender && (fw != lastFW || fh != lastFH))
+            needRender = true; // 窗口尺寸变化
+        if (!needRender)
+        {
+            bool hovered = glfwGetWindowAttrib(g_window, GLFW_HOVERED) != 0;
+            if (hovered != lastHovered)
+                needRender = true; // 鼠标移入/移出窗口（清除/恢复 hover 高亮）
+        }
+
+        if (needRender)
+        {
+            renderFrame();
+            double mx, my;
+            glfwGetCursorPos(g_window, &mx, &my);
+            lastMX = mx;
+            lastMY = my;
+            lastFW = fw;
+            lastFH = fh;
+            lastHovered = glfwGetWindowAttrib(g_window, GLFW_HOVERED) != 0;
+            m_uiDirty = false;
+        }
+        // 无变化时不渲染：保持上一帧画面，GPU 占用归零
     }
 
     // 窗口关闭前保存配置（此时 g_window 仍然有效）
     saveConfig();
+    // 显式保存一次 ImGui 窗口布局（NoAutoSave 下自动保存已禁用）
+    ImGui::SaveIniSettingsToDisk("acui.ini");
 
     stopProcess();
     if (m_procThread.joinable())
@@ -744,7 +839,7 @@ void App::render()
     ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0);
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(8, 8));
     ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.965f, 0.975f, 0.985f, 1.0f)); // 侧边栏浅色背景
-    ImGui::Begin("SideNav", 0, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoBringToFrontOnFocus);
+    ImGui::Begin("SideNav", 0, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoSavedSettings);
     ImGui::PopStyleColor();
     ImGui::PopStyleVar(3);
     renderSideNav();
@@ -756,7 +851,7 @@ void App::render()
     ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0);
     ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0);
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(8, 8));
-    ImGui::Begin("Content", 0, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoBringToFrontOnFocus);
+    ImGui::Begin("Content", 0, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoSavedSettings);
     ImGui::PopStyleVar(3);
     renderContentArea();
     ImGui::End();
@@ -767,7 +862,7 @@ void App::render()
     ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0);
     ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0);
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(4, 2));
-    ImGui::Begin("Log", 0, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoBringToFrontOnFocus);
+    ImGui::Begin("Log", 0, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoSavedSettings);
     ImGui::PopStyleVar(3);
     renderLogArea();
     ImGui::End();
@@ -975,6 +1070,7 @@ void App::renderSettingsPanel()
             m_projectRoot = projectBuf;
             m_cliRoot = m_projectRoot + "/src/cli";
             m_serverRoot = m_projectRoot + "/src/server";
+            refreshVenvState();
         }
         ImGui::SameLine();
         ImGui::PushID("browse_project");
@@ -994,6 +1090,7 @@ void App::renderSettingsPanel()
             // 目标目录 = 项目根
             m_cliRoot = m_projectRoot + "/src/cli";
             m_serverRoot = m_projectRoot + "/src/server";
+            refreshVenvState();
         }
         ImGui::PopID();
     }
@@ -1074,7 +1171,7 @@ void App::renderStatusBar()
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(8, 2));
     ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0);
     ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0);
-    ImGui::Begin("SB", 0, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoBringToFrontOnFocus);
+    ImGui::Begin("SB", 0, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoSavedSettings);
     ImGui::PopStyleVar(3);
 
     // Python 状态：绿/红圆点 + 文字
@@ -1153,7 +1250,7 @@ void App::renderEnvPanel()
             if (ImGui::Button(TR("env.venv"), ImVec2(-1, 34)))
                 createVenv(false);
             // .venv 已存在时提供“删除并重建”，避免 Permission denied
-            if (_access((m_projectRoot + "/.venv").c_str(), 0) == 0)
+            if (m_venvExists)
             {
                 if (ImGui::Button(TR("env.venv_del"), ImVec2(-1, 34)))
                     createVenv(true);

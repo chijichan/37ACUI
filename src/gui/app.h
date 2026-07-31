@@ -15,6 +15,7 @@ public:
 
     bool init(const char *title, int width, int height);
     void run();
+    void renderFrame(); // 渲染一帧（仅在有变化需要重绘时调用）
 
     HttpClient &http() { return m_http; }
     const std::string &projectRoot() const { return m_projectRoot; }
@@ -63,6 +64,7 @@ private:
     void saveConfig();
     void loadConfig();
     void updateProjectPaths(); // 根据 programDir 计算 project/cli/server 路径
+    void refreshVenvState();   // 刷新 .venv 存在性缓存（避免每帧文件系统查询）
 
     HttpClient m_http;
     std::string m_programDir; // 程序地址（init 时从 exe 路径自动获取）
@@ -74,6 +76,8 @@ private:
     std::thread m_procThread;
     ConsoleWidget m_console;
     void *m_procStdinWrite = nullptr;
+    std::atomic<unsigned long> m_procPid{0}; // 当前子进程 PID（0 = 无），用于精确终止进程
+    std::atomic<bool> m_uiDirty{true};       // UI 需要重绘（后台线程日志/状态更新时置位）
     ImFont *m_bigFont = nullptr;   // 大字号 Logo 字体
     ImFont *m_titleFont = nullptr; // 卡片标题字体（加粗、略大）
     ImFont *m_monoFont = nullptr;  // 控制台等宽字体
@@ -81,4 +85,5 @@ private:
     bool m_gitCloning = false;
     int m_winX = 100, m_winY = 50, m_winW = 1280, m_winH = 800;
     int m_serverStatus = -1;
+    bool m_venvExists = false; // .venv 是否存在（缓存，避免每帧 _access 造成持续磁盘 IO）
 };
