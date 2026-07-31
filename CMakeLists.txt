@@ -88,10 +88,19 @@ set(ACUI_HEADERS
 # ========================
 # 可执行文件
 # ========================
-add_executable(${PROJECT_NAME} ${ACUI_SOURCES} ${ACUI_HEADERS}
+# WIN32 关键字：Windows GUI 子系统，避免启动时弹出黑色控制台窗口。
+# 同时用 /ENTRY:mainCRTStartup 保留 main() 入口（GUI 子系统默认要求 WinMain）。
+set(_ACUI_TARGET_KIND "")
+if(WIN32)
+    set(_ACUI_TARGET_KIND WIN32)
+endif()
+add_executable(${PROJECT_NAME} ${_ACUI_TARGET_KIND} ${ACUI_SOURCES} ${ACUI_HEADERS}
     ${IMGUI_SOURCES}
     ${IMPLOT_SOURCES}
 )
+if(WIN32)
+    target_link_options(${PROJECT_NAME} PRIVATE /ENTRY:mainCRTStartup)
+endif()
 
 target_include_directories(${PROJECT_NAME} PRIVATE
     src
