@@ -7,207 +7,125 @@ LangSys &LangSys::I()
 }
 
 void LangSys::setLang(Lang lang) { m_lang = lang; }
-LangSys::LangSys() {}
+
+LangSys::LangSys()
+{
+    // key -> {中文, English}
+    // Menu
+    m_data["menu.file"] = {"文件", "File"};
+    m_data["menu.exit"] = {"退出", "Exit"};
+    m_data["menu.tools"] = {"工具", "Tools"};
+    m_data["menu.demo"] = {"ImGui Demo", "ImGui Demo"};
+    m_data["menu.refresh"] = {"刷新", "Refresh"};
+    m_data["menu.lang"] = {"语言", "Language"};
+    m_data["menu.running"] = {"运行中...", "* running..."};
+    m_data["menu.stop"] = {"停止", "stop"};
+    m_data["menu.idle"] = {"空闲", "idle"};
+
+    // Tabs
+    m_data["tab.git"] = {"Git", "Git"};
+    m_data["tab.env"] = {"环境", "Environment"};
+    m_data["tab.server"] = {"服务端", "Server"};
+    m_data["tab.cli"] = {"CLI", "CLI"};
+
+    // Console
+    m_data["console.title"] = {"控制台", "Console"};
+    m_data["console.clear"] = {"清空", "clear"};
+    m_data["console.hint"] = {"| 拖选复制 | 上下键历史", "| select+copy | up/down history"};
+
+    // Nav
+    m_data["nav.launch"] = {"启动", "Launch"};
+    m_data["nav.tools"] = {"工具", "Tools"};
+    m_data["nav.settings"] = {"设置", "Settings"};
+    m_data["nav.exit"] = {"退出", "Exit"};
+    m_data["nav.status"] = {"状态: ", "Status: "};
+    m_data["nav.running"] = {"运行中", "RUNNING"};
+    m_data["nav.idle"] = {"空闲", "idle"};
+    m_data["nav.stop"] = {"停止", "STOP"};
+
+    // Settings
+    m_data["settings.language"] = {"语言", "Language"};
+    m_data["settings.english"] = {"英语", "English"};
+    m_data["settings.chinese"] = {"中文", "Chinese"};
+
+    // Status
+    m_data["status.python_ok"] = {"[OK] Python", "[OK] Python"};
+    m_data["status.python_no"] = {"[NO] Python", "[NO] Python"};
+    m_data["status.project"] = {"项目:", "Project:"};
+
+    // Git
+    m_data["git.title"] = {"从 GitHub 下载 37AC", "Download 37AC from GitHub"};
+    m_data["git.url"] = {"Git URL:", "Git URL:"};
+    m_data["git.dir"] = {"目标目录:", "Target dir:"};
+    m_data["git.clone"] = {"克隆 37AC", "Clone 37AC"};
+    m_data["git.check"] = {"检查目录", "Check dir"};
+    m_data["git.cloning"] = {"正在克隆...", "cloning..."};
+    m_data["git.browse"] = {"浏览...", "Browse..."};
+    m_data["git.fill"] = {"请填写 URL 和目录", "fill in URL and dir"};
+    m_data["git.exists"] = {"目录已存在", "dir exists"};
+    m_data["git.none"] = {"目录不存在", "dir not found"};
+
+    // Env
+    m_data["env.python"] = {"Python", "Python"};
+    m_data["env.ready"] = {"[OK] Python ready", "[OK] Python ready"};
+    m_data["env.recheck"] = {"重新检测", "recheck"};
+    m_data["env.version"] = {"版本:", "version:"};
+    m_data["env.nofound"] = {"[NO] Python 未找到", "[NO] Python not found"};
+    m_data["env.detect"] = {"检测", "detect"};
+    m_data["env.paths"] = {"路径", "Paths"};
+    m_data["env.root"] = {"根目录:", "root:"};
+    m_data["env.cli"] = {"CLI:", "CLI:"};
+    m_data["env.srv"] = {"服务端:", "server:"};
+    m_data["env.actions"] = {"快捷操作", "Quick actions"};
+    m_data["env.install_cli"] = {"安装 CLI 依赖", "Install CLI deps"};
+    m_data["env.install_srv"] = {"安装服务端依赖", "Install server deps"};
+    m_data["env.verify"] = {"验证环境", "Verify env"};
+    m_data["env.venv"] = {"创建虚拟环境", "Create venv"};
+    m_data["env.venv_ok"] = {"[venv] 创建成功", "[venv] created"};
+    m_data["env.venv_fail"] = {"[venv] 创建失败", "[venv] failed"};
+
+    // Server
+    m_data["srv.title"] = {"服务端状态", "Server status"};
+    m_data["srv.on"] = {"[ON] 运行中", "[ON] server running"};
+    m_data["srv.off"] = {"[OFF] 未运行", "[OFF] not running"};
+    m_data["srv.unknown"] = {"[?] 未检测", "[?] not checked"};
+    m_data["srv.start"] = {"启动服务端", "Start server"};
+    m_data["srv.check"] = {"检查状态", "Check status"};
+    m_data["srv.online"] = {"[server] 在线", "[server] online"};
+    m_data["srv.offline"] = {"[server] 离线", "[server] offline"};
+    m_data["srv.links"] = {"快捷链接", "Links"};
+    m_data["srv.web"] = {"打开 Web 前端", "Web frontend"};
+    m_data["srv.api"] = {"API 测试", "API test"};
+
+    // CLI
+    m_data["cli.train"] = {"模型训练", "Training"};
+    m_data["cli.btn_train"] = {"开始训练", "Train"};
+    m_data["cli.btn_resume"] = {"继续训练", "Resume"};
+    m_data["cli.btn_predict"] = {"预测角色", "Predict"};
+    m_data["cli.node"] = {"节点与工具", "Node & Tools"};
+    m_data["cli.btn_node"] = {"启动节点", "Node"};
+    m_data["cli.btn_verify"] = {"验证图像", "Verify"};
+    m_data["cli.btn_menu"] = {"交互菜单", "Menu"};
+
+    // Log tags
+    m_data["log.start"] = {"[start] ", "[start] "};
+    m_data["log.done"] = {"[done] ", "[done] "};
+    m_data["log.error"] = {"[error] ", "[error] "};
+    m_data["log.warn"] = {"[warn] ", "[warn] "};
+    m_data["log.git"] = {"[Git] ", "[Git] "};
+
+    // General
+    m_data["app.title"] = {"37ACUI", "37ACUI"};
+    m_data["app.started"] = {"[OK] 37ACUI started", "[OK] 37ACUI started"};
+    m_data["app.path"] = {"project path", "project path"};
+    m_data["app.python"] = {"Python", "Python"};
+    m_data["app.notfound"] = {"not found", "not found"};
+}
 
 const char *LangSys::get(const std::string &key) const
 {
-    bool cn = (m_lang == Lang::Chinese);
-
-    // Menu
-    if (key == "menu.file")
-        return cn ? "\xE6\x96\x87\xE4\xBB\xB6" : "File";
-    if (key == "menu.exit")
-        return cn ? "\xE9\x80\x80\xE5\x87\xBA" : "Exit";
-    if (key == "menu.tools")
-        return cn ? "\xE5\xB7\xA5\xE5\x85\xB7" : "Tools";
-    if (key == "menu.demo")
-        return cn ? "ImGui Demo" : "ImGui Demo";
-    if (key == "menu.refresh")
-        return cn ? "\xE5\x88\xB7\xE6\x96\xB0" : "Refresh";
-    if (key == "menu.lang")
-        return cn ? "\xE8\xAF\xAD\xE8\xA8\x80" : "Language";
-    if (key == "menu.running")
-        return cn ? "\xE8\xBF\x90\xE8\xA1\x8C\xE4\xB8\xAD..." : "* running...";
-    if (key == "menu.stop")
-        return cn ? "\xE5\x81\x9C\xE6\xAD\xA2" : "stop";
-    if (key == "menu.idle")
-        return cn ? "\xE7\xA9\xBA\xE9\x97\xB2" : "idle";
-
-    // Tabs
-    if (key == "tab.git")
-        return cn ? "Git" : "Git";
-    if (key == "tab.env")
-        return cn ? "\xE7\x8E\xAF\xE5\xA2\x83" : "Environment";
-    if (key == "tab.server")
-        return cn ? "\xE6\x9C\x8D\xE5\x8A\xA1\xE7\xAB\xAF" : "Server";
-    if (key == "tab.cli")
-        return cn ? "CLI" : "CLI";
-
-    // Console
-    if (key == "console.title")
-        return cn ? "\xE6\x8E\xA7\xE5\x88\xB6\xE5\x8F\xB0" : "Console";
-    if (key == "console.clear")
-        return cn ? "\xE6\xB8\x85\xE7\xA9\xBA" : "clear";
-    if (key == "console.hint")
-        return cn ? "| \xE6\x8B\x96\xE9\x80\x89\xE5\xA4\x8D\xE5\x88\xB6 | \xE4\xB8\x8A\xE4\xB8\x8B\xE9\x94\xAE\xE5\x8E\x86\xE5\x8F\xB2" : "| select+copy | up/down history";
-
-    // Nav
-    if (key == "nav.launch")
-        return cn ? "\xE5\x90\xAF\xE5\x8A\xA8" : "Launch";
-    if (key == "nav.tools")
-        return cn ? "\xE5\xB7\xA5\xE5\x85\xB7" : "Tools";
-    if (key == "nav.settings")
-        return cn ? "\xE8\xAE\xBE\xE7\xBD\xAE" : "Settings";
-    if (key == "nav.exit")
-        return cn ? "\xE9\x80\x80\xE5\x87\xBA" : "Exit";
-    if (key == "nav.status")
-        return cn ? "\xE7\x8A\xB6\xE6\x80\x81: " : "Status: ";
-    if (key == "nav.running")
-        return cn ? "\xE8\xBF\x90\xE8\xA1\x8C\xE4\xB8\xAD" : "RUNNING";
-    if (key == "nav.idle")
-        return cn ? "\xE7\xA9\xBA\xE9\x97\xB2" : "idle";
-    if (key == "nav.stop")
-        return cn ? "\xE5\x81\x9C\xE6\xAD\xA2" : "STOP";
-
-    // Settings
-    if (key == "settings.language")
-        return cn ? "\xE8\xAF\xAD\xE8\xA8\x80" : "Language";
-    if (key == "settings.english")
-        return cn ? "\xE8\x8B\xB1\xE8\xAF\xAD" : "English";
-    if (key == "settings.chinese")
-        return cn ? "\xE4\xB8\xAD\xE6\x96\x87" : "Chinese";
-
-    // Status
-    if (key == "status.python_ok")
-        return cn ? "[OK] Python" : "[OK] Python";
-    if (key == "status.python_no")
-        return cn ? "[NO] Python" : "[NO] Python";
-    if (key == "status.project")
-        return cn ? "\xE9\xA1\xB9\xE7\x9B\xAE:" : "Project:";
-
-    // Git
-    if (key == "git.title")
-        return cn ? "\xE4\xBB\x8E GitHub \xE4\xB8\x8B\xE8\xBD\xBD 37AC" : "Download 37AC from GitHub";
-    if (key == "git.url")
-        return cn ? "Git URL:" : "Git URL:";
-    if (key == "git.dir")
-        return cn ? "\xE7\x9B\xAE\xE6\xA0\x87\xE7\x9B\xAE\xE5\xBD\x95:" : "Target dir:";
-    if (key == "git.clone")
-        return cn ? "\xE5\x85\x8B\xE9\x9A\x86 37AC" : "Clone 37AC";
-    if (key == "git.check")
-        return cn ? "\xE6\xA3\x80\xE6\x9F\xA5\xE7\x9B\xAE\xE5\xBD\x95" : "Check dir";
-    if (key == "git.cloning")
-        return cn ? "\xE6\xAD\xA3\xE5\x9C\xA8\xE5\x85\x8B\xE9\x9A\x86..." : "cloning...";
-    if (key == "git.browse")
-        return cn ? "\xE6\xB5\x8F\xE8\xA7\x88..." : "Browse...";
-    if (key == "git.fill")
-        return cn ? "\xE8\xAF\xB7\xE5\xA1\xAB\xE5\x86\x99 URL \xE5\x92\x8C\xE7\x9B\xAE\xE5\xBD\x95" : "fill in URL and dir";
-    if (key == "git.exists")
-        return cn ? "\xE7\x9B\xAE\xE5\xBD\x95\xE5\xB7\xB2\xE5\xAD\x98\xE5\x9C\xA8" : "dir exists";
-    if (key == "git.none")
-        return cn ? "\xE7\x9B\xAE\xE5\xBD\x95\xE4\xB8\x8D\xE5\xAD\x98\xE5\x9C\xA8" : "dir not found";
-
-    // Env
-    if (key == "env.python")
-        return cn ? "Python" : "Python";
-    if (key == "env.ready")
-        return cn ? "[OK] Python ready" : "[OK] Python ready";
-    if (key == "env.recheck")
-        return cn ? "\xE9\x87\x8D\xE6\x96\xB0\xE6\xA3\x80\xE6\xB5\x8B" : "recheck";
-    if (key == "env.version")
-        return cn ? "\xE7\x89\x88\xE6\x9C\xAC:" : "version:";
-    if (key == "env.nofound")
-        return cn ? "[NO] Python \xE6\x9C\xAA\xE6\x89\xBE\xE5\x88\xB0" : "[NO] Python not found";
-    if (key == "env.detect")
-        return cn ? "\xE6\xA3\x80\xE6\xB5\x8B" : "detect";
-    if (key == "env.paths")
-        return cn ? "\xE8\xB7\xAF\xE5\xBE\x84" : "Paths";
-    if (key == "env.root")
-        return cn ? "\xE6\xA0\xB9\xE7\x9B\xAE\xE5\xBD\x95:" : "root:";
-    if (key == "env.cli")
-        return cn ? "CLI:" : "CLI:";
-    if (key == "env.srv")
-        return cn ? "\xE6\x9C\x8D\xE5\x8A\xA1\xE7\xAB\xAF:" : "server:";
-    if (key == "env.actions")
-        return cn ? "\xE5\xBF\xAB\xE6\x8D\xB7\xE6\x93\x8D\xE4\xBD\x9C" : "Quick actions";
-    if (key == "env.install_cli")
-        return cn ? "\xE5\xAE\x89\xE8\xA3\x85 CLI \xE4\xBE\x9D\xE8\xB5\x96" : "Install CLI deps";
-    if (key == "env.install_srv")
-        return cn ? "\xE5\xAE\x89\xE8\xA3\x85\xE6\x9C\x8D\xE5\x8A\xA1\xE7\xAB\xAF\xE4\xBE\x9D\xE8\xB5\x96" : "Install server deps";
-    if (key == "env.verify")
-        return cn ? "\xE9\xAA\x8C\xE8\xAF\x81\xE7\x8E\xAF\xE5\xA2\x83" : "Verify env";
-    if (key == "env.venv")
-        return cn ? "\xE5\x88\x9B\xE5\xBB\xBA\xE8\x99\x9A\xE6\x8B\x9F\xE7\x8E\xAF\xE5\xA2\x83" : "Create venv";
-    if (key == "env.venv_ok")
-        return cn ? "[venv] \xE5\x88\x9B\xE5\xBB\xBA\xE6\x88\x90\xE5\x8A\x9F" : "[venv] created";
-    if (key == "env.venv_fail")
-        return cn ? "[venv] \xE5\x88\x9B\xE5\xBB\xBA\xE5\xA4\xB1\xE8\xB4\xA5" : "[venv] failed";
-
-    // Server
-    if (key == "srv.title")
-        return cn ? "\xE6\x9C\x8D\xE5\x8A\xA1\xE7\xAB\xAF\xE7\x8A\xB6\xE6\x80\x81" : "Server status";
-    if (key == "srv.on")
-        return cn ? "[ON] \xE8\xBF\x90\xE8\xA1\x8C\xE4\xB8\xAD" : "[ON] server running";
-    if (key == "srv.off")
-        return cn ? "[OFF] \xE6\x9C\xAA\xE8\xBF\x90\xE8\xA1\x8C" : "[OFF] not running";
-    if (key == "srv.unknown")
-        return cn ? "[?] \xE6\x9C\xAA\xE6\xA3\x80\xE6\xB5\x8B" : "[?] not checked";
-    if (key == "srv.start")
-        return cn ? "\xE5\x90\xAF\xE5\x8A\xA8\xE6\x9C\x8D\xE5\x8A\xA1\xE7\xAB\xAF" : "Start server";
-    if (key == "srv.check")
-        return cn ? "\xE6\xA3\x80\xE6\x9F\xA5\xE7\x8A\xB6\xE6\x80\x81" : "Check status";
-    if (key == "srv.online")
-        return cn ? "[server] \xE5\x9C\xA8\xE7\xBA\xBF" : "[server] online";
-    if (key == "srv.offline")
-        return cn ? "[server] \xE7\xA6\xBB\xE7\xBA\xBF" : "[server] offline";
-    if (key == "srv.links")
-        return cn ? "\xE5\xBF\xAB\xE6\x8D\xB7\xE9\x93\xBE\xE6\x8E\xA5" : "Links";
-    if (key == "srv.web")
-        return cn ? "\xE6\x89\x93\xE5\xBC\x80 Web \xE5\x89\x8D\xE7\xAB\xAF" : "Web frontend";
-    if (key == "srv.api")
-        return cn ? "API \xE6\xB5\x8B\xE8\xAF\x95" : "API test";
-
-    // CLI
-    if (key == "cli.train")
-        return cn ? "\xE6\xA8\xA1\xE5\x9E\x8B\xE8\xAE\xAD\xE7\xBB\x83" : "Training";
-    if (key == "cli.btn_train")
-        return cn ? "\xE5\xBC\x80\xE5\xA7\x8B\xE8\xAE\xAD\xE7\xBB\x83" : "Train";
-    if (key == "cli.btn_resume")
-        return cn ? "\xE7\xBB\xA7\xE7\xBB\xAD\xE8\xAE\xAD\xE7\xBB\x83" : "Resume";
-    if (key == "cli.btn_predict")
-        return cn ? "\xE9\xA2\x84\xE6\xB5\x8B\xE8\xA7\x92\xE8\x89\xB2" : "Predict";
-    if (key == "cli.node")
-        return cn ? "\xE8\x8A\x82\xE7\x82\xB9\xE4\xB8\x8E\xE5\xB7\xA5\xE5\x85\xB7" : "Node & Tools";
-    if (key == "cli.btn_node")
-        return cn ? "\xE5\x90\xAF\xE5\x8A\xA8\xE8\x8A\x82\xE7\x82\xB9" : "Node";
-    if (key == "cli.btn_verify")
-        return cn ? "\xE9\xAA\x8C\xE8\xAF\x81\xE5\x9B\xBE\xE5\x83\x8F" : "Verify";
-    if (key == "cli.btn_menu")
-        return cn ? "\xE4\xBA\xA4\xE4\xBA\x92\xE8\x8F\x9C\xE5\x8D\x95" : "Menu";
-
-    // Log tags
-    if (key == "log.start")
-        return cn ? "[start] " : "[start] ";
-    if (key == "log.done")
-        return cn ? "[done] " : "[done] ";
-    if (key == "log.error")
-        return cn ? "[error] " : "[error] ";
-    if (key == "log.warn")
-        return cn ? "[warn] " : "[warn] ";
-    if (key == "log.git")
-        return cn ? "[Git] " : "[Git] ";
-
-    // General
-    if (key == "app.title")
-        return cn ? "37ACUI" : "37ACUI";
-    if (key == "app.started")
-        return cn ? "[OK] 37ACUI started" : "[OK] 37ACUI started";
-    if (key == "app.path")
-        return cn ? "project path" : "project path";
-    if (key == "app.python")
-        return cn ? "Python" : "Python";
-    if (key == "app.notfound")
-        return cn ? "not found" : "not found";
-
-    return key.c_str();
+    auto it = m_data.find(key);
+    if (it == m_data.end())
+        return key.c_str();
+    return (m_lang == Lang::Chinese) ? it->second.first : it->second.second;
 }

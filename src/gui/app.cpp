@@ -233,15 +233,10 @@ bool App::init(const char *title, int width, int height)
     _putenv_s("PYTHONIOENCODING", "utf-8");
     _putenv_s("PYTHONUNBUFFERED", "1");
 
-    // 确保项目根路径正确（默认 E:/pj/37AC，如果配置读出来是 UI 自己的路径则修正）
-    if (m_projectRoot.empty() ||
-        m_projectRoot.find("37ACUI") != std::string::npos ||
-        m_projectRoot.find("37AC") == std::string::npos)
-    {
-        m_projectRoot = "E:/pj/37AC";
-        m_cliRoot = m_projectRoot + "/src/cli";
-        m_serverRoot = m_projectRoot + "/src/server";
-    }
+    // 项目根目录 = Git 目标目录（不在写死）
+    m_projectRoot = m_gitDir;
+    m_cliRoot = m_projectRoot + "/src/cli";
+    m_serverRoot = m_projectRoot + "/src/server";
 
     checkPython();
     addInfo("[OK] 37ACUI started");
@@ -691,13 +686,14 @@ void App::renderToolsPanel()
         checkPython();
 }
 
-// ==================== 设置页（语言） ====================
+// ==================== 设置页（语言 + Git 配置） ====================
 void App::renderSettingsPanel()
 {
     auto t = [](const char *s)
     {ImGui::Spacing(); ImGui::TextColored(ImVec4(0.3f,0.8f,1.0f,1),"%s",s); ImGui::Separator(); };
-    t(TR("settings.language"));
 
+    // ---- 语言 ----
+    t(TR("settings.language"));
     bool en = (LangSys::I().lang() == Lang::English);
     bool cn = (LangSys::I().lang() == Lang::Chinese);
     if (ImGui::RadioButton(TR("settings.english"), en))
@@ -705,6 +701,35 @@ void App::renderSettingsPanel()
     ImGui::Spacing();
     if (ImGui::RadioButton(TR("settings.chinese"), cn))
         LangSys::I().setLang(Lang::Chinese);
+
+    // ---- Git 下载配置 ----
+    t(TR("git.title"));
+    ImGui::Text("%s", TR("git.url"));
+    ImGui::SetNextItemWidth(400);
+    ImGui::InputText("##gu", m_gitUrl, sizeof(m_gitUrl));
+
+    ImGui::Text("%s", TR("git.dir"));
+    ImGui::SetNextItemWidth(320);
+    ImGui::InputText("##gd", m_gitDir, sizeof(m_gitDir));
+    ImGui::SameLine();
+    if (ImGui::Button(TR("git.browse"), ImVec2(80, 0)))
+    {
+        char path[MAX_PATH] = {};
+        BROWSEINFOA bi = {};
+        bi.lpszTitle = "Select target directory";
+        bi.ulFlags = BIF_RETURNONLYFSDIRS | BIF_NEWDIALOGSTYLE;
+        LPITEMIDLIST pidl = SHBrowseForFolderA(&bi);
+        if (pidl)
+        {
+            if (SHGetPathFromIDListA(pidl, path))
+                strncpy_s(m_gitDir, path, sizeof(m_gitDir) - 1);
+            CoTaskMemFree(pidl);
+        }
+        // 目标目录 = 项目根
+        m_projectRoot = m_gitDir;
+        m_cliRoot = m_projectRoot + "/src/cli";
+        m_serverRoot = m_projectRoot + "/src/server";
+    }
 }
 
 // ==================== 控制台 ====================
@@ -841,29 +866,10 @@ void App::renderEnvPanel()
             addError(TR("env.venv_fail"));
     }
 
-    // ---- Git 下载（整合进环境页） ----
+    // ---- Git 操作（URL/目录在设置页配置） ----
     t(TR("git.title"));
-    ImGui::Text("%s", TR("git.url"));
-    ImGui::SetNextItemWidth(430);
-    ImGui::InputText("##gu", m_gitUrl, sizeof(m_gitUrl));
-    ImGui::Text("%s", TR("git.dir"));
-    ImGui::SetNextItemWidth(340);
-    ImGui::InputText("##gd", m_gitDir, sizeof(m_gitDir));
-    ImGui::SameLine();
-    if (ImGui::Button(TR("git.browse"), ImVec2(80, 0)))
-    {
-        char path[MAX_PATH] = {};
-        BROWSEINFOA bi = {};
-        bi.lpszTitle = "Select target directory";
-        bi.ulFlags = BIF_RETURNONLYFSDIRS | BIF_NEWDIALOGSTYLE;
-        LPITEMIDLIST pidl = SHBrowseForFolderA(&bi);
-        if (pidl)
-        {
-            if (SHGetPathFromIDListA(pidl, path))
-                strncpy_s(m_gitDir, path, sizeof(m_gitDir) - 1);
-            CoTaskMemFree(pidl);
-        }
-    }
+    ImGui::TextDisabled("  %s %s", TR("git.url"), m_gitUrl);
+    ImGui::TextDisabled("  %s %s", TR("git.dir"), m_gitDir);
     ImGui::Spacing();
     if (m_gitCloning)
     {

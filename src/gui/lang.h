@@ -1,7 +1,7 @@
 #pragma once
 
 #include <string>
-#include <map>
+#include <unordered_map>
 
 enum class Lang
 {
@@ -20,7 +20,8 @@ public:
 private:
     LangSys();
     Lang m_lang = Lang::English;
-    std::map<std::string, std::string[2]> m_data;
+    // key -> {中文, 英文}
+    std::unordered_map<std::string, std::pair<const char *, const char *>> m_data;
 };
 
 #define TR(key) LangSys::I().get(key)
