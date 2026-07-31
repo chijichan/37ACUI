@@ -46,7 +46,6 @@ static std::string stripAnsi(const std::string &s)
 static const ImU32 g_colGreen = IM_COL32(34, 197, 94, 255);
 static const ImU32 g_colRed = IM_COL32(239, 68, 68, 255);
 static const ImU32 g_colGray = IM_COL32(150, 160, 172, 255);
-static const ImU32 g_colAccent = IM_COL32(37, 99, 235, 255); // 品牌蓝，导航高亮竖线
 
 // 状态圆点：在光标处画一个实心圆并预留空间
 static void drawDot(ImU32 color)
@@ -76,7 +75,7 @@ static void drawTag(const char *text, const ImVec4 &bg, const ImVec4 &fg)
     ImGui::SameLine();
 }
 
-// 导航项：选中时浅蓝背景 + 左侧亮色竖线；悬停时浅灰背景
+// 导航项：选中时蓝色背景 + 白色文字 + 左侧亮色高亮条；悬停时稍浅蓝 + 白字
 static bool navItem(const char *label, bool selected)
 {
     ImVec2 btnMin = ImGui::GetCursorScreenPos();
@@ -85,23 +84,29 @@ static bool navItem(const char *label, bool selected)
 
     if (selected || hovered)
     {
+        // 蓝底白字（选中更饱和，悬停稍浅）
         ImGui::PushStyleColor(ImGuiCol_Button,
-                              selected ? ImVec4(0.86f, 0.93f, 1.00f, 1.0f) : ImVec4(0.93f, 0.95f, 0.97f, 1.0f));
-        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.88f, 0.94f, 1.00f, 1.0f));
-        ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.82f, 0.90f, 0.98f, 1.0f));
-        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.10f, 0.16f, 0.25f, 1.0f));
+                              selected ? ImVec4(0.23f, 0.51f, 0.96f, 1.0f) : ImVec4(0.38f, 0.65f, 0.98f, 1.0f));
+        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.20f, 0.46f, 0.95f, 1.0f));
+        ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.12f, 0.34f, 0.85f, 1.0f));
+        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 1.0f, 1.0f, 1.0f)); // 白字
     }
     bool clicked = ImGui::Button(label, ImVec2(-1, 36));
     if (selected || hovered)
         ImGui::PopStyleColor(4);
 
-    // 左侧亮色竖线（仅选中态）
+    // 左侧亮色高亮条：覆盖按钮几乎全高，圆角匹配按钮
     if (selected)
     {
-        ImGui::GetWindowDrawList()->AddRectFilled(
-            ImVec2(btnMin.x + 3.0f, btnMin.y + 8.0f),
-            ImVec2(btnMin.x + 6.0f, btnMax.y - 8.0f),
-            g_colAccent, 1.5f);
+        ImDrawList *dl = ImGui::GetWindowDrawList();
+        float inset = 3.0f;      // 上下仅留 3px 边距，几乎覆盖全高
+        float barW = 4.0f;
+        float rounding = ImGui::GetStyle().FrameRounding; // 3.0f，与按钮圆角一致
+        dl->AddRectFilled(
+            ImVec2(btnMin.x + 3.0f, btnMin.y + inset),
+            ImVec2(btnMin.x + 3.0f + barW, btnMax.y - inset),
+            IM_COL32(219, 234, 254, 255), // 亮蓝 #dbeafe
+            rounding * 0.5f);
     }
     return clicked;
 }
@@ -124,10 +129,16 @@ static bool navExitItem(const char *label)
         ImGui::PopStyleColor(4);
     if (hovered)
     {
-        ImGui::GetWindowDrawList()->AddRectFilled(
-            ImVec2(btnMin.x + 3.0f, btnMin.y + 8.0f),
-            ImVec2(btnMin.x + 6.0f, btnMax.y - 8.0f),
-            IM_COL32(220, 80, 80, 255), 1.5f);
+        // 红色高亮条：覆盖按钮几乎全高，圆角匹配按钮
+        ImDrawList *dl = ImGui::GetWindowDrawList();
+        float inset = 3.0f;
+        float barW = 4.0f;
+        float rounding = ImGui::GetStyle().FrameRounding;
+        dl->AddRectFilled(
+            ImVec2(btnMin.x + 3.0f, btnMin.y + inset),
+            ImVec2(btnMin.x + 3.0f + barW, btnMax.y - inset),
+            IM_COL32(220, 80, 80, 255),
+            rounding * 0.5f);
     }
     return clicked;
 }
@@ -865,8 +876,9 @@ void App::endCard()
 // ==================== 启动页（环境+Git+服务端+CLI） ====================
 void App::renderLaunchPanel()
 {
+    // NoBackground：不绘制子窗口背景，露出 Content 窗口的白色背景
     if (ImGui::BeginChild("LaunchScroll", ImVec2(0, 0), false,
-                          ImGuiWindowFlags_HorizontalScrollbar))
+                          ImGuiWindowFlags_HorizontalScrollbar | ImGuiWindowFlags_NoBackground))
     {
         renderEnvPanel(); // 环境 + Git 整合
         renderServerPanel();
