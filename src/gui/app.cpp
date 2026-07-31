@@ -505,26 +505,43 @@ void App::run()
 // ==================== 渲染 ====================
 void App::render()
 {
-    renderMenuBar();
     ImVec2 vs = ImGui::GetIO().DisplaySize;
-    float logH = vs.y * 0.4f, mainH = vs.y - 18.0f - 26.0f - logH;
+    float statusH = 26.0f;
+    float logH = vs.y * 0.4f;
+    float navW = vs.x * 0.25f; // 左侧占 1/4
+    float contentX = navW;
+    float contentW = vs.x - navW;
+    float contentH = vs.y - statusH - logH;
 
-    ImGui::SetNextWindowPos(ImVec2(0, 18));
-    ImGui::SetNextWindowSize(ImVec2(vs.x, mainH));
+    // ---- 左侧导航栏 ----
+    ImGui::SetNextWindowPos(ImVec2(0, 0));
+    ImGui::SetNextWindowSize(ImVec2(navW, vs.y - statusH));
     ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0);
     ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0);
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
-    ImGui::Begin("Main", 0, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoBringToFrontOnFocus);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(8, 8));
+    ImGui::Begin("SideNav", 0, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoBringToFrontOnFocus);
     ImGui::PopStyleVar(3);
-    renderTabBar();
+    renderSideNav();
     ImGui::End();
 
-    ImGui::SetNextWindowPos(ImVec2(0, 18 + mainH));
-    ImGui::SetNextWindowSize(ImVec2(vs.x, logH));
+    // ---- 右侧内容区 ----
+    ImGui::SetNextWindowPos(ImVec2(contentX, 0));
+    ImGui::SetNextWindowSize(ImVec2(contentW, contentH));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(8, 8));
+    ImGui::Begin("Content", 0, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoBringToFrontOnFocus);
+    ImGui::PopStyleVar(3);
+    renderContentArea();
+    ImGui::End();
+
+    // ---- 右侧控制台区 ----
+    ImGui::SetNextWindowPos(ImVec2(contentX, contentH));
+    ImGui::SetNextWindowSize(ImVec2(contentW, logH));
     ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0);
     ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0);
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(4, 2));
-    ImGui::Begin("Log", 0, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoBringToFrontOnFocus);
+    ImGui::Begin("Log", 0, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoBringToFrontOnFocus);
     ImGui::PopStyleVar(3);
     renderLogArea();
     ImGui::End();
@@ -534,79 +551,92 @@ void App::render()
         ImGui::ShowDemoWindow(&m_showDemo);
 }
 
-// ==================== 菜单栏 ====================
-void App::renderMenuBar()
+// ==================== 左侧导航栏 ====================
+void App::renderSideNav()
 {
-    if (ImGui::BeginMainMenuBar())
-    {
-        if (ImGui::BeginMenu(TR("menu.file")))
-        {
-            if (ImGui::MenuItem(TR("menu.exit")))
-                glfwSetWindowShouldClose(g_window, true);
-            ImGui::EndMenu();
-        }
-        if (ImGui::BeginMenu(TR("menu.tools")))
-        {
-            ImGui::MenuItem(TR("menu.demo"), 0, &m_showDemo);
-            if (ImGui::MenuItem(TR("menu.refresh")))
-                checkPython();
-            ImGui::EndMenu();
-        }
-        if (ImGui::BeginMenu(TR("menu.lang")))
-        {
-            bool en = (LangSys::I().lang() == Lang::English);
-            bool cn = (LangSys::I().lang() == Lang::Chinese);
-            if (ImGui::MenuItem("English", 0, &en))
-                LangSys::I().setLang(Lang::English);
-            if (ImGui::MenuItem("Chinese", 0, &cn))
-                LangSys::I().setLang(Lang::Chinese);
-            ImGui::EndMenu();
-        }
+    // Logo
+    ImGui::TextColored(ImVec4(0.3f, 0.8f, 1.0f, 1), "37ACUI");
+    ImGui::Separator();
+    ImGui::Spacing();
 
-        // 右侧显示进程状态
-        ImGui::SameLine(ImGui::GetWindowWidth() - 180);
-        if (m_procRunning)
-        {
-            ImGui::TextColored(ImVec4(1, 1, 0, 1), "%s", TR("menu.running"));
-            ImGui::SameLine();
-            if (ImGui::Button(TR("menu.stop")))
-                stopProcess();
-        }
-        else
-        {
-            ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1), "%s", TR("menu.idle"));
-        }
-        ImGui::EndMainMenuBar();
+    // 导航按钮
+    const char *navItems[] = {TR("nav.launch"), TR("nav.tools"), TR("nav.settings")};
+    for (int i = 0; i < 3; i++)
+    {
+        bool selected = (m_activeNav == i);
+        if (selected)
+            ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.25f, 0.45f, 0.65f, 1.0f));
+        if (ImGui::Button(navItems[i], ImVec2(-1, 36)))
+            m_activeNav = i;
+        if (selected)
+            ImGui::PopStyleColor();
+        ImGui::Spacing();
     }
+
+    // 底部：退出按钮
+    ImGui::Spacing();
+    ImGui::Separator();
+    ImGui::Spacing();
+    ImGui::Spacing();
+    ImGui::Spacing();
+    if (ImGui::Button(TR("nav.exit"), ImVec2(-1, 36)))
+        glfwSetWindowShouldClose(g_window, true);
 }
 
-// ==================== 标签栏 ====================
-void App::renderTabBar()
+// ==================== 右侧内容区 ====================
+void App::renderContentArea()
 {
-    if (ImGui::BeginTabBar("Tabs", ImGuiTabBarFlags_None))
+    if (m_activeNav == 0)
+        renderLaunchPanel();
+    else if (m_activeNav == 1)
+        renderToolsPanel();
+    else
+        renderSettingsPanel();
+}
+
+// ==================== 启动页（环境+Git+服务端+CLI） ====================
+void App::renderLaunchPanel()
+{
+    if (ImGui::BeginChild("LaunchScroll", ImVec2(0, 0), false,
+                          ImGuiWindowFlags_HorizontalScrollbar))
     {
-        if (ImGui::BeginTabItem(TR("tab.git")))
-        {
-            renderGitPanel();
-            ImGui::EndTabItem();
-        }
-        if (ImGui::BeginTabItem(TR("tab.env")))
-        {
-            renderEnvPanel();
-            ImGui::EndTabItem();
-        }
-        if (ImGui::BeginTabItem(TR("tab.server")))
-        {
-            renderServerPanel();
-            ImGui::EndTabItem();
-        }
-        if (ImGui::BeginTabItem(TR("tab.cli")))
-        {
-            renderCliPanel();
-            ImGui::EndTabItem();
-        }
-        ImGui::EndTabBar();
+        renderEnvPanel(); // 环境 + Git 整合
+        renderServerPanel();
+        renderCliPanel();
     }
+    ImGui::EndChild();
+}
+
+// ==================== 工具页 ====================
+void App::renderToolsPanel()
+{
+    auto t = [](const char *s)
+    {ImGui::Spacing(); ImGui::TextColored(ImVec4(0.3f,0.8f,1.0f,1),"%s",s); ImGui::Separator(); };
+    t(TR("menu.tools"));
+
+    if (ImGui::Checkbox("ImGui Demo", &m_showDemo))
+    {
+        // 切换 demo 窗口
+    }
+    ImGui::Spacing();
+    if (ImGui::Button(TR("menu.refresh"), ImVec2(180, 36)))
+        checkPython();
+}
+
+// ==================== 设置页（语言） ====================
+void App::renderSettingsPanel()
+{
+    auto t = [](const char *s)
+    {ImGui::Spacing(); ImGui::TextColored(ImVec4(0.3f,0.8f,1.0f,1),"%s",s); ImGui::Separator(); };
+    t(TR("settings.language"));
+
+    bool en = (LangSys::I().lang() == Lang::English);
+    bool cn = (LangSys::I().lang() == Lang::Chinese);
+    if (ImGui::RadioButton(TR("settings.english"), en))
+        LangSys::I().setLang(Lang::English);
+    ImGui::Spacing();
+    if (ImGui::RadioButton(TR("settings.chinese"), cn))
+        LangSys::I().setLang(Lang::Chinese);
 }
 
 // ==================== 控制台 ====================
@@ -656,7 +686,8 @@ void App::renderLogArea()
             startProcess("console: " + c, cmd, m_cliRoot);
         }
     };
-    m_console.Draw("##con", ImVec2(0, -ih - th), true, send);
+    m_console.Draw("##con", ImVec2(0, -ih - th), true, send,
+                   "train | resume | predict | node | verify | menu | server");
 }
 
 // ==================== 状态栏 ====================
@@ -670,6 +701,7 @@ void App::renderStatusBar()
     ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0);
     ImGui::Begin("SB", 0, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoBringToFrontOnFocus);
     ImGui::PopStyleVar(3);
+
     if (m_pythonOk)
         ImGui::TextColored(ImVec4(0, 1, 0, 1), "%s", TR("status.python_ok"));
     else
@@ -678,68 +710,25 @@ void App::renderStatusBar()
     ImGui::Separator();
     ImGui::SameLine();
     ImGui::Text("%s %s", TR("status.project"), m_projectRoot.c_str());
+
+    // 进程状态显示在右下角
+    ImGui::SameLine(ImGui::GetContentRegionMax().x - ImGui::GetCursorPosX() - 100.0f);
+    if (m_procRunning)
+    {
+        ImGui::TextColored(ImVec4(1, 1, 0, 1), "%s%s", TR("nav.status"), TR("nav.running"));
+        ImGui::SameLine();
+        if (ImGui::SmallButton(TR("nav.stop")))
+            stopProcess();
+    }
+    else
+    {
+        ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1), "%s%s", TR("nav.status"), TR("nav.idle"));
+    }
+
     ImGui::End();
 }
 
-// ==================== Git 面板 ====================
-void App::renderGitPanel()
-{
-    ImGui::Spacing();
-    ImGui::TextColored(ImVec4(0.3f, 0.8f, 1.0f, 1), "%s", TR("git.title"));
-    ImGui::SeparatorText("Repository");
-    ImGui::Text("%s", TR("git.url"));
-    ImGui::SetNextItemWidth(500);
-    ImGui::InputText("##gu", m_gitUrl, sizeof(m_gitUrl));
-    ImGui::Text("%s", TR("git.dir"));
-    ImGui::SetNextItemWidth(430);
-    ImGui::InputText("##gd", m_gitDir, sizeof(m_gitDir));
-    ImGui::SameLine();
-    if (ImGui::Button(TR("git.browse"), ImVec2(80, 0)))
-    {
-        // Windows 文件夹选择对话框
-        char path[MAX_PATH] = {};
-        BROWSEINFOA bi = {};
-        bi.lpszTitle = "Select target directory";
-        bi.ulFlags = BIF_RETURNONLYFSDIRS | BIF_NEWDIALOGSTYLE;
-        LPITEMIDLIST pidl = SHBrowseForFolderA(&bi);
-        if (pidl)
-        {
-            if (SHGetPathFromIDListA(pidl, path))
-                strncpy_s(m_gitDir, path, sizeof(m_gitDir) - 1);
-            CoTaskMemFree(pidl);
-        }
-    }
-    ImGui::SeparatorText("Actions");
-    if (m_gitCloning)
-    {
-        ImGui::TextColored(ImVec4(1, 1, 0, 1), "%s", TR("git.cloning"));
-        return;
-    }
-    if (ImGui::Button(TR("git.clone"), ImVec2(200, 40)))
-    {
-        std::string u(m_gitUrl), d(m_gitDir);
-        if (!u.empty() && !d.empty())
-            startGitClone(u, d);
-        else
-            addError(std::string(TR("git.fill")));
-    }
-    ImGui::SameLine();
-    if (ImGui::Button(TR("git.check"), ImVec2(120, 40)))
-    {
-        if (_access(m_gitDir, 0) == 0)
-        {
-            addSuccess(std::string(TR("git.exists")));
-            m_projectRoot = m_gitDir;
-            m_cliRoot = std::string(m_gitDir) + "/src/cli";
-            m_serverRoot = std::string(m_gitDir) + "/src/server";
-            checkPython();
-        }
-        else
-            addWarn(std::string(TR("git.none")));
-    }
-}
-
-// ==================== 环境面板 ====================
+// ==================== 环境面板（含 Git 下载） ====================
 void App::renderEnvPanel()
 {
     auto t = [](const char *s)
@@ -782,6 +771,60 @@ void App::renderEnvPanel()
             addSuccess(TR("env.venv_ok"));
         else
             addError(TR("env.venv_fail"));
+    }
+
+    // ---- Git 下载（整合进环境页） ----
+    t(TR("git.title"));
+    ImGui::Text("%s", TR("git.url"));
+    ImGui::SetNextItemWidth(430);
+    ImGui::InputText("##gu", m_gitUrl, sizeof(m_gitUrl));
+    ImGui::Text("%s", TR("git.dir"));
+    ImGui::SetNextItemWidth(340);
+    ImGui::InputText("##gd", m_gitDir, sizeof(m_gitDir));
+    ImGui::SameLine();
+    if (ImGui::Button(TR("git.browse"), ImVec2(80, 0)))
+    {
+        char path[MAX_PATH] = {};
+        BROWSEINFOA bi = {};
+        bi.lpszTitle = "Select target directory";
+        bi.ulFlags = BIF_RETURNONLYFSDIRS | BIF_NEWDIALOGSTYLE;
+        LPITEMIDLIST pidl = SHBrowseForFolderA(&bi);
+        if (pidl)
+        {
+            if (SHGetPathFromIDListA(pidl, path))
+                strncpy_s(m_gitDir, path, sizeof(m_gitDir) - 1);
+            CoTaskMemFree(pidl);
+        }
+    }
+    ImGui::Spacing();
+    if (m_gitCloning)
+    {
+        ImGui::TextColored(ImVec4(1, 1, 0, 1), "%s", TR("git.cloning"));
+    }
+    else
+    {
+        if (ImGui::Button(TR("git.clone"), ImVec2(200, 36)))
+        {
+            std::string u(m_gitUrl), d(m_gitDir);
+            if (!u.empty() && !d.empty())
+                startGitClone(u, d);
+            else
+                addError(std::string(TR("git.fill")));
+        }
+        ImGui::SameLine();
+        if (ImGui::Button(TR("git.check"), ImVec2(120, 36)))
+        {
+            if (_access(m_gitDir, 0) == 0)
+            {
+                addSuccess(std::string(TR("git.exists")));
+                m_projectRoot = m_gitDir;
+                m_cliRoot = std::string(m_gitDir) + "/src/cli";
+                m_serverRoot = std::string(m_gitDir) + "/src/server";
+                checkPython();
+            }
+            else
+                addWarn(std::string(TR("git.none")));
+        }
     }
 }
 

@@ -51,6 +51,32 @@ const char *LangSys::get(const std::string &key) const
     if (key == "console.hint")
         return cn ? "| \xE6\x8B\x96\xE9\x80\x89\xE5\xA4\x8D\xE5\x88\xB6 | \xE4\xB8\x8A\xE4\xB8\x8B\xE9\x94\xAE\xE5\x8E\x86\xE5\x8F\xB2" : "| select+copy | up/down history";
 
+    // Nav
+    if (key == "nav.launch")
+        return cn ? "\xE5\x90\xAF\xE5\x8A\xA8" : "Launch";
+    if (key == "nav.tools")
+        return cn ? "\xE5\xB7\xA5\xE5\x85\xB7" : "Tools";
+    if (key == "nav.settings")
+        return cn ? "\xE8\xAE\xBE\xE7\xBD\xAE" : "Settings";
+    if (key == "nav.exit")
+        return cn ? "\xE9\x80\x80\xE5\x87\xBA" : "Exit";
+    if (key == "nav.status")
+        return cn ? "\xE7\x8A\xB6\xE6\x80\x81: " : "Status: ";
+    if (key == "nav.running")
+        return cn ? "\xE8\xBF\x90\xE8\xA1\x8C\xE4\xB8\xAD" : "RUNNING";
+    if (key == "nav.idle")
+        return cn ? "\xE7\xA9\xBA\xE9\x97\xB2" : "idle";
+    if (key == "nav.stop")
+        return cn ? "\xE5\x81\x9C\xE6\xAD\xA2" : "STOP";
+
+    // Settings
+    if (key == "settings.language")
+        return cn ? "\xE8\xAF\xAD\xE8\xA8\x80" : "Language";
+    if (key == "settings.english")
+        return cn ? "\xE8\x8B\xB1\xE8\xAF\xAD" : "English";
+    if (key == "settings.chinese")
+        return cn ? "\xE4\xB8\xAD\xE6\x96\x87" : "Chinese";
+
     // Status
     if (key == "status.python_ok")
         return cn ? "[OK] Python" : "[OK] Python";

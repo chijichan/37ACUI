@@ -48,7 +48,8 @@ void ConsoleWidget::AddLog(const std::string &line)
 }
 
 void ConsoleWidget::Draw(const char *title, ImVec2 size, bool hasInput,
-                         std::function<void(const std::string &)> onCommand)
+                         std::function<void(const std::string &)> onCommand,
+                         const char *hint)
 {
     // 用 BeginChild 包裹确保 InputTextMultiline 占满可用区域
     ImGui::BeginChild("ConsoleOut", size, false, ImGuiWindowFlags_HorizontalScrollbar);
@@ -106,6 +107,12 @@ void ConsoleWidget::Draw(const char *title, ImVec2 size, bool hasInput,
             }
             s[0] = '\0';
             reclaim = true;
+        }
+
+        // 指令提示（显示在输入框下方）
+        if (hint)
+        {
+            ImGui::TextDisabled("%s", hint);
         }
 
         if (reclaim)

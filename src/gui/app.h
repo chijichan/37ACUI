@@ -40,14 +40,16 @@ public:
 
 private:
     void render();
-    void renderMenuBar();
-    void renderTabBar();
+    void renderSideNav();       // 左侧导航栏
+    void renderContentArea();   // 右侧内容区
     void renderStatusBar();
-    void renderLogArea();
-    void renderEnvPanel();
+    void renderLogArea();       // 控制台区
+    void renderLaunchPanel();   // 启动页（环境+Git+服务端+CLI）
+    void renderEnvPanel();      // 环境 + Git
     void renderServerPanel();
     void renderCliPanel();
-    void renderGitPanel();
+    void renderToolsPanel();    // 工具页
+    void renderSettingsPanel(); // 设置页（语言）
 
     void procThreadFunc(const std::string &name, const std::string &cmd,
                         const std::string &cwd);
@@ -57,7 +59,7 @@ private:
 
     HttpClient m_http;
     std::string m_projectRoot, m_cliRoot, m_serverRoot;
-    int m_activeTab = 0;
+    int m_activeNav = 0; // 0=启动 1=工具 2=设置
     bool m_showDemo = false, m_pythonOk = false;
     std::string m_pythonVersion;
     std::atomic<bool> m_procRunning{false};

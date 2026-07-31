@@ -14,7 +14,8 @@ public:
     void ClearLog();
     void AddLog(const std::string &line);
     void Draw(const char *title, ImVec2 size, bool hasInput = false,
-              std::function<void(const std::string &)> onCommand = nullptr);
+              std::function<void(const std::string &)> onCommand = nullptr,
+              const char *hint = nullptr);
 
     void FocusInput() { m_reclaimFocus = true; }
 
