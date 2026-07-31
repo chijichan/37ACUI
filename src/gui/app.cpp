@@ -267,8 +267,10 @@ bool App::init(const char *title, int width, int height)
     // 下次启动窗口位置由 glfwSetWindowPos 恢复
 
     // 设置子进程环境变量：UTF-8 编码 + 无缓冲输出
+    // PYTHONUTF8=1 启用 UTF-8 模式，避免 pip 用 GBK 解码含中文注释的 requirements.txt 报错
     _putenv_s("PYTHONIOENCODING", "utf-8");
     _putenv_s("PYTHONUNBUFFERED", "1");
+    _putenv_s("PYTHONUTF8", "1");
 
     checkPython();
     addInfo("[OK] 37ACUI started");
@@ -323,14 +325,24 @@ bool App::runPython(const std::string &cmd, const std::string &cwd,
 {
     output.clear();
     exitCode = -1;
-    std::string py = cwd + "/../.venv/Scripts/python.exe";
+    std::string py = cwd + "/.venv/Scripts/python.exe";
     if (_access(py.c_str(), 0) != 0)
     {
-        py = cwd + "/../../.venv/Scripts/python.exe";
+        py = cwd + "/../.venv/Scripts/python.exe";
         if (_access(py.c_str(), 0) != 0)
-            py = "python";
+        {
+            py = cwd + "/../../.venv/Scripts/python.exe";
+            if (_access(py.c_str(), 0) != 0)
+                py = "python";
+        }
     }
-    std::string fc = "\"" + py + "\" -u " + cmd + " 2>&1";
+    // 用 cmd /c + cd /d 在目标目录运行，确保 .venv 等相对路径落在正确位置
+    std::string fc = "cmd /c chcp 65001>nul & cd /d \"" + cwd + "\" && ";
+    if (py != "python")
+        fc += "\"" + py + "\"";
+    else
+        fc += "python";
+    fc += " -u " + cmd + " 2>&1";
     FILE *pipe = _popen(fc.c_str(), "r");
     if (!pipe)
     {
@@ -346,18 +358,70 @@ bool App::runPython(const std::string &cmd, const std::string &cwd,
     return true;
 }
 
+// ==================== 虚拟环境 ====================
+// 在后台线程中执行删除+创建，避免阻塞主渲染线程导致界面卡死
+void App::createVenv(bool recreate)
+{
+    if (m_procRunning)
+    {
+        addWarn("[warn] process already running");
+        return;
+    }
+    m_procRunning = true;
+    if (m_procThread.joinable())
+        m_procThread.join();
+    m_procThread = std::thread(&App::venvThreadFunc, this, recreate);
+}
+
+void App::venvThreadFunc(bool recreate)
+{
+    std::string venvDir = m_projectRoot + "/.venv";
+    if (recreate && _access(venvDir.c_str(), 0) == 0)
+    {
+        addWarn(std::string(TR("env.venv_del_ok")));
+        system(("cmd /c rmdir /s /q \"" + venvDir + "\"").c_str());
+    }
+    else if (!recreate && _access(venvDir.c_str(), 0) == 0)
+    {
+        addWarn(std::string(TR("env.venv_exist")));
+    }
+
+    std::string o;
+    int c = 0;
+    runPython("-m venv .venv", m_projectRoot, o, c);
+    if (c == 0)
+    {
+        addSuccess(TR("env.venv_ok"));
+        checkPython(); // 创建后立即刷新，识别刚生成的 venv 解释器
+    }
+    else
+    {
+        addError(TR("env.venv_fail"));
+        if (!o.empty())
+            addError("[venv] " + o);
+        // 针对性提示：解析常见错误，给出可操作的解决办法
+        if (o.find("Permission denied") != std::string::npos)
+            addError(std::string(TR("env.venv_perm")));
+    }
+    m_procRunning = false;
+}
+
 // ==================== 异步进程 ====================
 void App::procThreadFunc(const std::string &name, const std::string &cmd,
                          const std::string &cwd)
 {
     addInfo(std::string("[start] ") + name + ": " + cmd);
 
-    std::string py = cwd + "/../.venv/Scripts/python.exe";
+    std::string py = cwd + "/.venv/Scripts/python.exe";
     if (_access(py.c_str(), 0) != 0)
     {
-        py = cwd + "/../../.venv/Scripts/python.exe";
+        py = cwd + "/../.venv/Scripts/python.exe";
         if (_access(py.c_str(), 0) != 0)
-            py = "python";
+        {
+            py = cwd + "/../../.venv/Scripts/python.exe";
+            if (_access(py.c_str(), 0) != 0)
+                py = "python";
+        }
     }
     std::string fc = "\"" + py + "\" -u " + cmd;
 
@@ -929,14 +993,13 @@ void App::renderEnvPanel()
         startProcess("verify env", "verify_env.py", m_projectRoot);
     t(TR("env.venv"));
     if (ImGui::Button(TR("env.venv"), ImVec2(220, 35)))
+        createVenv(false);
+    // .venv 已存在时提供“删除并重建”，避免 Permission denied
+    if (_access((m_projectRoot + "/.venv").c_str(), 0) == 0)
     {
-        std::string o;
-        int c = 0;
-        runPython("-m venv .venv", m_projectRoot, o, c);
-        if (c == 0)
-            addSuccess(TR("env.venv_ok"));
-        else
-            addError(TR("env.venv_fail"));
+        ImGui::SameLine();
+        if (ImGui::Button(TR("env.venv_del"), ImVec2(160, 35)))
+            createVenv(true);
     }
 
     // ---- Git 操作（URL/目录在设置页配置） ----

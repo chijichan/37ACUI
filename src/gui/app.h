@@ -30,6 +30,7 @@ public:
     bool runPython(const std::string &cmd, const std::string &cwd,
                    std::string &output, int &exitCode);
     bool checkPython();
+    void createVenv(bool recreate); // 创建虚拟环境（recreate=true 时先删除旧 .venv）
 
     void startProcess(const std::string &name, const std::string &cmd,
                       const std::string &cwd);
@@ -53,6 +54,7 @@ private:
 
     void procThreadFunc(const std::string &name, const std::string &cmd,
                         const std::string &cwd);
+    void venvThreadFunc(bool recreate); // 后台线程：删除旧 .venv + 创建新环境
 
     void saveConfig();
     void loadConfig();

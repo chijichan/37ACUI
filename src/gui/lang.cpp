@@ -84,6 +84,10 @@ LangSys::LangSys()
     m_data["env.venv"] = {"创建虚拟环境", "Create venv"};
     m_data["env.venv_ok"] = {"[venv] 创建成功", "[venv] created"};
     m_data["env.venv_fail"] = {"[venv] 创建失败", "[venv] failed"};
+    m_data["env.venv_del"] = {"删除并重建", "Delete & recreate"};
+    m_data["env.venv_del_ok"] = {"[venv] 旧环境已删除，正在重建...", "[venv] old env removed, recreating..."};
+    m_data["env.venv_exist"] = {"[venv] 检测到 .venv 已存在，直接创建可能因文件被占用而失败", "[venv] .venv exists; recreating may fail while files are in use"};
+    m_data["env.venv_perm"] = {"[venv] 权限被拒绝：.venv 可能被运行中的 Python 进程占用或文件被锁定。请先停止运行中的进程，再点击“删除并重建”重试", "[venv] Permission denied: .venv may be in use by a running Python process or files are locked. Stop running processes, then click 'Delete & recreate'"};
 
     // Server
     m_data["srv.title"] = {"服务端状态", "Server status"};
