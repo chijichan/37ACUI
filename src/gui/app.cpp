@@ -4,6 +4,7 @@
 #include "imgui_impl_opengl3.h"
 #include "implot.h"
 #include <GLFW/glfw3.h>
+#include <algorithm>
 #include <cstdio>
 #include <cstring>
 #include <chrono>
@@ -355,7 +356,7 @@ void App::procThreadFunc(const std::string &name, const std::string &cmd,
         {
             if (avail > 0)
             {
-                if (ReadFile(hOutR, buf, min(sizeof(buf) - 1, avail), &read, 0) && read > 0)
+                if (ReadFile(hOutR, buf, std::min<DWORD>((DWORD)sizeof(buf) - 1, avail), &read, 0) && read > 0)
                 {
                     buf[read] = 0;
                     part += buf;
@@ -807,9 +808,6 @@ void App::renderServerPanel()
         else
             addWarn(TR("srv.offline"));
     }
-    t(TR("srv.links"));
-    if (ImGui::Button(TR("srv.web"), ImVec2(160, 30)))
-        ShellExecuteA(0, "open", "http://127.0.0.1:8000", 0, 0, SW_SHOW);
     ImGui::SameLine();
     if (ImGui::Button(TR("srv.api"), ImVec2(120, 30)))
         ShellExecuteA(0, "open", "http://127.0.0.1:13138/upload", 0, 0, SW_SHOW);

@@ -138,7 +138,7 @@ HttpResult HttpClient::request(const std::string &method, const std::string &pat
     LPVOID lpBody = body.empty() ? nullptr : (void *)body.c_str();
     DWORD bodyLen = body.empty() ? 0 : (DWORD)body.size();
 
-    if (!WinHttpSendRequest(hRequest, pwHeaders, headers.size(),
+    if (!WinHttpSendRequest(hRequest, pwHeaders, (DWORD)headers.size(),
                             lpBody, bodyLen, bodyLen, 0))
     {
         result.error = "WinHttpSendRequest failed";

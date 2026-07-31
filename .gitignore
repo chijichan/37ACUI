@@ -1,0 +1,62 @@
+# ========================
+# 构建产物
+# ========================
+build/
+out/
+*.sln
+*.vcxproj
+*.vcxproj.filters
+*.vcxproj.user
+*.recipe
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+*.dir/
+
+# ========================
+# IDE / 编辑器
+# ========================
+.vs/
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# ========================
+# 运行时配置（本地）
+# ========================
+acui_settings.ini
+acui.ini
+
+# ========================
+# 编译产物
+# ========================
+*.exe
+*.pdb
+*.ilk
+*.lib
+*.dll
+*.exp
+*.obj
+*.o
+*.a
+*.so
+*.dylib
+
+# ========================
+# Python 环境
+# ========================
+.venv/
+venv/
+__pycache__/
+*.pyc
+*.pyo
+
+# ========================
+# 其他
+# ========================
+*.log
+*.tmp

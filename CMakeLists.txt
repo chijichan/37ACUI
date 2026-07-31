@@ -5,14 +5,38 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # ========================
-# vcpkg 工具链（检查环境和固定路径）
+# vcpkg 工具链（自动检测环境变量和常见安装路径）
 # ========================
-if(DEFINED ENV{VCPKG_ROOT} AND NOT CMAKE_TOOLCHAIN_FILE)
-    set(CMAKE_TOOLCHAIN_FILE "$ENV{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake"
-        CACHE STRING "")
-elseif(EXISTS "E:/apps/vcpkg/scripts/buildsystems/vcpkg.cmake" AND NOT CMAKE_TOOLCHAIN_FILE)
-    set(CMAKE_TOOLCHAIN_FILE "E:/apps/vcpkg/scripts/buildsystems/vcpkg.cmake"
-        CACHE STRING "")
+if(NOT CMAKE_TOOLCHAIN_FILE)
+    # 优先使用环境变量 VCPKG_ROOT
+    if(DEFINED ENV{VCPKG_ROOT})
+        set(_vcpkg_tc "$ENV{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake")
+        if(EXISTS "${_vcpkg_tc}")
+            set(CMAKE_TOOLCHAIN_FILE "${_vcpkg_tc}" CACHE STRING "")
+            message(STATUS "vcpkg 工具链 (VCPKG_ROOT): ${_vcpkg_tc}")
+        endif()
+    endif()
+
+    # 回退到常见安装路径
+    if(NOT CMAKE_TOOLCHAIN_FILE)
+        foreach(_candidate
+            "E:/apps/vcpkg"
+            "C:/vcpkg"
+            "C:/dev/vcpkg"
+            "$ENV{USERPROFILE}/vcpkg"
+        )
+            set(_vcpkg_tc "${_candidate}/scripts/buildsystems/vcpkg.cmake")
+            if(EXISTS "${_vcpkg_tc}")
+                set(CMAKE_TOOLCHAIN_FILE "${_vcpkg_tc}" CACHE STRING "")
+                message(STATUS "vcpkg 工具链 (自动检测): ${_vcpkg_tc}")
+                break()
+            endif()
+        endforeach()
+    endif()
+
+    if(NOT CMAKE_TOOLCHAIN_FILE)
+        message(WARNING "未找到 vcpkg 工具链。请设置 VCPKG_ROOT 环境变量或通过 -DCMAKE_TOOLCHAIN_FILE=... 指定路径。")
+    endif()
 endif()
 
 # 查找 OpenGL 和 GLFW
@@ -77,14 +101,24 @@ target_include_directories(${PROJECT_NAME} PRIVATE
     ${OPENGL_INCLUDE_DIRS}
 )
 
-target_compile_options(${PROJECT_NAME} PRIVATE /utf-8)
+target_compile_options(${PROJECT_NAME} PRIVATE
+    /utf-8          # UTF-8 源码编码
+    /W4             # 高警告级别
+    /wd4100         # 忽略未引用形参警告
+    /wd4127         # 忽略条件表达式常量警告 (ImGui)
+)
+
+target_compile_definitions(${PROJECT_NAME} PRIVATE
+    _CRT_SECURE_NO_WARNINGS   # 使用标准 C 函数 (fopen/sscanf 等)
+    NOMINMAX                  # 避免 Windows.h 定义 min/max 宏
+)
 
 target_link_libraries(${PROJECT_NAME} PRIVATE
     glfw
     ${OPENGL_LIBRARIES}
 )
 
-# Windows 子系统
+# Windows 子系统依赖
 if(WIN32)
     target_link_libraries(${PROJECT_NAME} PRIVATE winmm ws2_32)
 endif()
@@ -92,4 +126,14 @@ endif()
 # ========================
 # 安装规则
 # ========================
-install(TARGETS ${PROJECT_NAME} RUNTIME DESTINATION ${CMAKE_BINARY_DIR})
+install(TARGETS ${PROJECT_NAME} RUNTIME DESTINATION bin)
+
+# 拷贝运行时配置文件到构建输出目录
+if(WIN32 AND EXISTS "${CMAKE_SOURCE_DIR}/acui.ini")
+    add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${CMAKE_SOURCE_DIR}/acui.ini"
+            "$<TARGET_FILE_DIR:${PROJECT_NAME}>/acui.ini"
+        COMMENT "Copying acui.ini to output directory"
+    )
+endif()
