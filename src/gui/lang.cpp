@@ -39,9 +39,9 @@ LangSys::LangSys()
     m_data["nav.settings"] = {"设置", "Settings"};
     m_data["nav.exit"] = {"退出", "Exit"};
     m_data["nav.status"] = {"状态: ", "Status: "};
-    m_data["nav.running"] = {"运行中", "RUNNING"};
+    m_data["nav.running"] = {"运行中", "running"};
     m_data["nav.idle"] = {"空闲", "idle"};
-    m_data["nav.stop"] = {"停止", "STOP"};
+    m_data["nav.stop"] = {"停止", "stop"};
 
     // Settings
     m_data["settings.language"] = {"语言", "Language"};

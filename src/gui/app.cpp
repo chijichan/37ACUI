@@ -1050,8 +1050,17 @@ void App::renderLogArea()
             startProcess("console: " + c, cmd, m_cliRoot);
         }
     };
+    // 进程状态 + 停止按钮放在指令提示前（运行中橙色 / 空闲灰色）
+    std::string statusText = std::string(TR("nav.status")) +
+                             (m_procRunning ? TR("nav.running") : TR("nav.idle"));
+    ImU32 statusColor = m_procRunning ? IM_COL32(255, 166, 0, 255) : IM_COL32(150, 160, 172, 255);
+    // 仅在进程运行时提供停止按钮
+    std::function<void()> onStop;
+    if (m_procRunning)
+        onStop = [this]() { stopProcess(); };
     m_console.Draw("##con", ImVec2(0, -ih - th), true, send,
-                   "train | resume | predict | node | verify | menu | server", m_monoFont);
+                   "train | resume | predict | node | verify | menu | server", m_monoFont,
+                   statusText.c_str(), statusColor, onStop, TR("nav.stop"));
 }
 
 // ==================== 状态栏 ====================
@@ -1074,20 +1083,6 @@ void App::renderStatusBar()
         ImGui::TextColored(ImVec4(0.72f, 0.41f, 0.42f, 1), "%s", TR("status.python_no"));
     ImGui::SameLine();
     ImGui::Text("%s %s", TR("status.project"), m_projectRoot.c_str());
-
-    // 进程状态显示在右下角
-    ImGui::SameLine(ImGui::GetContentRegionMax().x - ImGui::GetCursorPosX() - 130.0f);
-    if (m_procRunning)
-    {
-        ImGui::TextColored(ImVec4(1.0f, 0.65f, 0.0f, 1), "%s%s", TR("nav.status"), TR("nav.running"));
-        ImGui::SameLine();
-        if (ImGui::SmallButton(TR("nav.stop")))
-            stopProcess();
-    }
-    else
-    {
-        ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1), "%s%s", TR("nav.status"), TR("nav.idle"));
-    }
 
     ImGui::End();
 }
