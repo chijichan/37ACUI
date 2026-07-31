@@ -47,6 +47,7 @@ LangSys::LangSys()
     m_data["settings.language"] = {"语言", "Language"};
     m_data["settings.english"] = {"英语", "English"};
     m_data["settings.chinese"] = {"中文", "Chinese"};
+    m_data["settings.program_dir"] = {"程序地址:", "Program dir:"};
 
     // Status
     m_data["status.python_ok"] = {"[OK] Python", "[OK] Python"};
@@ -56,7 +57,7 @@ LangSys::LangSys()
     // Git
     m_data["git.title"] = {"从 GitHub 下载 37AC", "Download 37AC from GitHub"};
     m_data["git.url"] = {"Git URL:", "Git URL:"};
-    m_data["git.dir"] = {"目标目录:", "Target dir:"};
+    m_data["git.dir"] = {"项目目录:", "Target dir:"};
     m_data["git.clone"] = {"克隆 37AC", "Clone 37AC"};
     m_data["git.check"] = {"检查目录", "Check dir"};
     m_data["git.cloning"] = {"正在克隆...", "cloning..."};

@@ -56,8 +56,10 @@ private:
 
     void saveConfig();
     void loadConfig();
+    void updateProjectPaths(); // 根据 programDir 计算 project/cli/server 路径
 
     HttpClient m_http;
+    std::string m_programDir; // 程序地址（init 时从 exe 路径自动获取）
     std::string m_projectRoot, m_cliRoot, m_serverRoot;
     int m_activeNav = 0; // 0=启动 1=工具 2=设置
     bool m_showDemo = false, m_pythonOk = false;
@@ -68,7 +70,6 @@ private:
     void *m_procStdinWrite = nullptr;
     ImFont *m_bigFont = nullptr; // 大字号 Logo 字体
     char m_gitUrl[256] = "https://github.com/chijichan/37AC.git";
-    char m_gitDir[256] = "E:/apps/37ACUI";
     bool m_gitCloning = false;
     int m_winX = 100, m_winY = 50, m_winW = 1280, m_winH = 800;
     int m_serverStatus = -1;

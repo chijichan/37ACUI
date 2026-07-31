@@ -45,6 +45,17 @@ static std::string stripAnsi(const std::string &s)
 // 所有持久化设置都写入 acui_settings.ini (acui.ini 由 ImGui 自动管理窗口布局)
 static const char *CFG_FILE = "acui_settings.ini";
 
+// 根据程序地址计算项目路径：m_projectRoot = programDir + project/37AC
+void App::updateProjectPaths()
+{
+    std::string base = m_programDir;
+    while (!base.empty() && (base.back() == '/' || base.back() == '\\'))
+        base.pop_back();
+    m_projectRoot = base + "/project/37AC";
+    m_cliRoot = m_projectRoot + "/src/cli";
+    m_serverRoot = m_projectRoot + "/src/server";
+}
+
 void App::saveConfig()
 {
     if (g_window)
@@ -60,9 +71,9 @@ void App::saveConfig()
     fprintf(f, "win_w=%d\n", m_winW);
     fprintf(f, "win_h=%d\n", m_winH);
     fprintf(f, "lang=%d\n", (int)LangSys::I().lang());
+    fprintf(f, "program=%s\n", m_programDir.c_str());
     fprintf(f, "project=%s\n", m_projectRoot.c_str());
     fprintf(f, "git_url=%s\n", m_gitUrl);
-    fprintf(f, "git_dir=%s\n", m_gitDir);
     fclose(f);
 }
 
@@ -85,8 +96,24 @@ void App::loadConfig()
             m_winH = v;
         else if (sscanf(line, "lang=%d", &v) == 1)
             LangSys::I().setLang((Lang)v);
-        else if (sscanf(line, "project=%511s", m_gitDir) == 1)
-            m_projectRoot = m_gitDir;
+        else if (strncmp(line, "program=", 8) == 0)
+        {
+            char *val = line + 8;
+            size_t n = strlen(val);
+            if (n > 0 && val[n - 1] == '\n')
+                val[n - 1] = 0;
+            m_programDir = val;
+            updateProjectPaths();
+        }
+        else if (strncmp(line, "project=", 8) == 0 || strncmp(line, "git_dir=", 8) == 0)
+        {
+            // 兼容旧配置 git_dir=，统一读入 m_projectRoot
+            char *val = line + strcspn(line, "=") + 1;
+            size_t n = strlen(val);
+            if (n > 0 && val[n - 1] == '\n')
+                val[n - 1] = 0;
+            m_projectRoot = val;
+        }
         else if (strncmp(line, "git_url=", 8) == 0)
         {
             char *val = line + 8;
@@ -95,16 +122,11 @@ void App::loadConfig()
                 val[n - 1] = 0;
             strncpy_s(m_gitUrl, val, sizeof(m_gitUrl) - 1);
         }
-        else if (strncmp(line, "git_dir=", 8) == 0)
-        {
-            char *val = line + 8;
-            size_t n = strlen(val);
-            if (n > 0 && val[n - 1] == '\n')
-                val[n - 1] = 0;
-            strncpy_s(m_gitDir, val, sizeof(m_gitDir) - 1);
-        }
     }
     fclose(f);
+    // 若配置中没有 program=，用当前 exe 目录（init 中已自动获取）
+    if (m_programDir.empty())
+        updateProjectPaths();
     m_cliRoot = m_projectRoot + "/src/cli";
     m_serverRoot = m_projectRoot + "/src/server";
 }
@@ -136,6 +158,19 @@ bool App::init(const char *title, int width, int height)
     glfwMakeContextCurrent(g_window);
     glfwSwapInterval(1);
 
+    // 自动获取程序地址（exe 所在目录）
+    {
+        char exePath[MAX_PATH] = {};
+        GetModuleFileNameA(nullptr, exePath, MAX_PATH);
+        std::string p(exePath);
+        auto pos = p.find_last_of("\\/");
+        if (pos != std::string::npos)
+            m_programDir = p.substr(0, pos);
+        else
+            m_programDir = p;
+        updateProjectPaths();
+    }
+
     // 初始化默认安全位置（主显示器居中）
     {
         int monCount = 0;
@@ -149,8 +184,10 @@ bool App::init(const char *title, int width, int height)
         }
     }
 
-    // 从统一配置恢复
+    // 从统一配置恢复（配置中如有 program= 会覆盖自动获取值）
     loadConfig();
+    // 确保默认路径按程序地址推导
+    updateProjectPaths();
 
     // 检查窗口位置是否有效，防止跑到屏幕外
     {
@@ -232,11 +269,6 @@ bool App::init(const char *title, int width, int height)
     // 设置子进程环境变量：UTF-8 编码 + 无缓冲输出
     _putenv_s("PYTHONIOENCODING", "utf-8");
     _putenv_s("PYTHONUNBUFFERED", "1");
-
-    // 项目根目录 = Git 目标目录（不在写死）
-    m_projectRoot = m_gitDir;
-    m_cliRoot = m_projectRoot + "/src/cli";
-    m_serverRoot = m_projectRoot + "/src/server";
 
     checkPython();
     addInfo("[OK] 37ACUI started");
@@ -702,16 +734,57 @@ void App::renderSettingsPanel()
     if (ImGui::RadioButton(TR("settings.chinese"), cn))
         LangSys::I().setLang(Lang::Chinese);
 
+    // ---- 程序地址 ----
+    t(TR("settings.program_dir"));
+    ImGui::SetNextItemWidth(320);
+    static char programBuf[512] = "";
+    strncpy_s(programBuf, m_programDir.c_str(), sizeof(programBuf) - 1);
+    if (ImGui::InputText("##pd", programBuf, sizeof(programBuf)))
+    {
+        m_programDir = programBuf;
+        updateProjectPaths();
+    }
+    ImGui::SameLine();
+    ImGui::PushID("browse_program");
+    if (ImGui::Button(TR("git.browse"), ImVec2(80, 0)))
+    {
+        char path[MAX_PATH] = {};
+        BROWSEINFOA bi = {};
+        bi.lpszTitle = "Select program directory";
+        bi.ulFlags = BIF_RETURNONLYFSDIRS | BIF_NEWDIALOGSTYLE;
+        LPITEMIDLIST pidl = SHBrowseForFolderA(&bi);
+        if (pidl)
+        {
+            if (SHGetPathFromIDListA(pidl, path))
+            {
+                m_programDir = path;
+                updateProjectPaths();
+            }
+            CoTaskMemFree(pidl);
+        }
+    }
+    ImGui::PopID();
+    ImGui::TextDisabled("  %s %s", TR("git.dir"), m_projectRoot.c_str());
+
     // ---- Git 下载配置 ----
     t(TR("git.title"));
     ImGui::Text("%s", TR("git.url"));
     ImGui::SetNextItemWidth(400);
     ImGui::InputText("##gu", m_gitUrl, sizeof(m_gitUrl));
 
+    // 目标目录直接使用 m_projectRoot（std::string 需要缓冲）
     ImGui::Text("%s", TR("git.dir"));
     ImGui::SetNextItemWidth(320);
-    ImGui::InputText("##gd", m_gitDir, sizeof(m_gitDir));
+    static char projectBuf[512] = "";
+    strncpy_s(projectBuf, m_projectRoot.c_str(), sizeof(projectBuf) - 1);
+    if (ImGui::InputText("##gd", projectBuf, sizeof(projectBuf)))
+    {
+        m_projectRoot = projectBuf;
+        m_cliRoot = m_projectRoot + "/src/cli";
+        m_serverRoot = m_projectRoot + "/src/server";
+    }
     ImGui::SameLine();
+    ImGui::PushID("browse_project");
     if (ImGui::Button(TR("git.browse"), ImVec2(80, 0)))
     {
         char path[MAX_PATH] = {};
@@ -722,14 +795,14 @@ void App::renderSettingsPanel()
         if (pidl)
         {
             if (SHGetPathFromIDListA(pidl, path))
-                strncpy_s(m_gitDir, path, sizeof(m_gitDir) - 1);
+                m_projectRoot = path;
             CoTaskMemFree(pidl);
         }
         // 目标目录 = 项目根
-        m_projectRoot = m_gitDir;
         m_cliRoot = m_projectRoot + "/src/cli";
         m_serverRoot = m_projectRoot + "/src/server";
     }
+    ImGui::PopID();
 }
 
 // ==================== 控制台 ====================
@@ -869,7 +942,7 @@ void App::renderEnvPanel()
     // ---- Git 操作（URL/目录在设置页配置） ----
     t(TR("git.title"));
     ImGui::TextDisabled("  %s %s", TR("git.url"), m_gitUrl);
-    ImGui::TextDisabled("  %s %s", TR("git.dir"), m_gitDir);
+    ImGui::TextDisabled("  %s %s", TR("git.dir"), m_projectRoot.c_str());
     ImGui::Spacing();
     if (m_gitCloning)
     {
@@ -879,7 +952,7 @@ void App::renderEnvPanel()
     {
         if (ImGui::Button(TR("git.clone"), ImVec2(200, 36)))
         {
-            std::string u(m_gitUrl), d(m_gitDir);
+            std::string u(m_gitUrl), d(m_projectRoot);
             if (!u.empty() && !d.empty())
                 startGitClone(u, d);
             else
@@ -888,12 +961,11 @@ void App::renderEnvPanel()
         ImGui::SameLine();
         if (ImGui::Button(TR("git.check"), ImVec2(120, 36)))
         {
-            if (_access(m_gitDir, 0) == 0)
+            if (_access(m_projectRoot.c_str(), 0) == 0)
             {
                 addSuccess(std::string(TR("git.exists")));
-                m_projectRoot = m_gitDir;
-                m_cliRoot = std::string(m_gitDir) + "/src/cli";
-                m_serverRoot = std::string(m_gitDir) + "/src/server";
+                m_cliRoot = m_projectRoot + "/src/cli";
+                m_serverRoot = m_projectRoot + "/src/server";
                 checkPython();
             }
             else
