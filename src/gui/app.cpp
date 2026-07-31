@@ -181,6 +181,7 @@ void App::saveConfig()
     fprintf(f, "win_w=%d\n", m_winW);
     fprintf(f, "win_h=%d\n", m_winH);
     fprintf(f, "lang=%d\n", (int)LangSys::I().lang());
+    fprintf(f, "auto_scroll=%d\n", m_autoScroll ? 1 : 0);
     fprintf(f, "program=%s\n", m_programDir.c_str());
     fprintf(f, "project=%s\n", m_projectRoot.c_str());
     fprintf(f, "git_url=%s\n", m_gitUrl);
@@ -206,6 +207,8 @@ void App::loadConfig()
             m_winH = v;
         else if (sscanf(line, "lang=%d", &v) == 1)
             LangSys::I().setLang((Lang)v);
+        else if (sscanf(line, "auto_scroll=%d", &v) == 1)
+            m_autoScroll = (v != 0);
         else if (strncmp(line, "program=", 8) == 0)
         {
             char *val = line + 8;
@@ -460,19 +463,27 @@ bool App::runPython(const std::string &cmd, const std::string &cwd,
 {
     output.clear();
     exitCode = -1;
-    std::string py = cwd + "/.venv/Scripts/python.exe";
+    // 工作目录不存在时（如项目尚未克隆），cmd 的 cd /d 会失败并输出
+    // "The system cannot find the path specified."，且 && 链断开导致 python 无法执行。
+    // 此时回退到程序目录（一定存在）运行，.venv 查找链也会自动落到系统 PATH 的 python，
+    // 这样项目目录缺失时仍能正确检测系统 Python，而不是误报 not found。
+    std::string workDir = cwd;
+    if (_access(workDir.c_str(), 0) != 0)
+        workDir = m_programDir;
+
+    std::string py = workDir + "/.venv/Scripts/python.exe";
     if (_access(py.c_str(), 0) != 0)
     {
-        py = cwd + "/../.venv/Scripts/python.exe";
+        py = workDir + "/../.venv/Scripts/python.exe";
         if (_access(py.c_str(), 0) != 0)
         {
-            py = cwd + "/../../.venv/Scripts/python.exe";
+            py = workDir + "/../../.venv/Scripts/python.exe";
             if (_access(py.c_str(), 0) != 0)
                 py = "python";
         }
     }
     // 用 cmd /c + cd /d 在目标目录运行，确保 .venv 等相对路径落在正确位置
-    std::string fc = "cmd /c chcp 65001>nul & cd /d \"" + cwd + "\" && ";
+    std::string fc = "cmd /c chcp 65001>nul & cd /d \"" + workDir + "\" && ";
     if (py != "python")
         fc += "\"" + py + "\"";
     else
@@ -539,6 +550,166 @@ void App::venvThreadFunc(bool recreate)
             addError(std::string(TR("env.venv_perm")));
     }
     refreshVenvState(); // venv 创建/删除后立即刷新缓存
+    m_procRunning = false;
+}
+
+// ==================== 一键初始化项目 ====================
+// 后台线程顺序执行：克隆 37AC → 检查目录 → 创建虚拟环境 → 安装依赖 → 验证环境
+void App::startInitProject()
+{
+    if (m_procRunning)
+    {
+        addWarn("[warn] process already running");
+        return;
+    }
+    addInfo(std::string(TR("log.init")) + TR("env.init_start"));
+    m_procRunning = true;
+    if (m_procThread.joinable())
+        m_procThread.join();
+    std::string url(m_gitUrl); // 拷贝 URL，避免与设置页编辑竞争
+    m_procThread = std::thread(&App::initProjectThreadFunc, this, url);
+}
+
+void App::initProjectThreadFunc(const std::string &url)
+{
+    std::string o;
+    int c = 0;
+
+    // ===== 1. 克隆 37AC（目录不存在时） =====
+    if (_access(m_projectRoot.c_str(), 0) != 0)
+    {
+        FILE *t = _popen("git --version 2>&1", "r");
+        if (!t)
+        {
+            addError(std::string(TR("log.git")) + TR("git.not_found"));
+            m_procRunning = false;
+            return;
+        }
+        char b[256];
+        if (fgets(b, sizeof(b), t))
+        {
+            std::string v(b);
+            while (!v.empty() && (v.back() == '\n' || v.back() == '\r'))
+                v.pop_back();
+            addInfo(std::string(TR("log.git")) + v);
+        }
+        _pclose(t);
+
+        // 确保父目录（project/）存在，git clone 才能创建目标目录
+        std::string parent = m_projectRoot;
+        auto pos = parent.find_last_of("/\\");
+        if (pos != std::string::npos)
+        {
+            parent = parent.substr(0, pos);
+            std::string cur;
+            for (size_t i = 0; i < parent.size(); i++)
+            {
+                cur += parent[i];
+                if (parent[i] == '\\' || parent[i] == '/')
+                {
+                    if (cur.size() > 3) // 跳过盘符部分（如 C:）
+                        _mkdir(cur.c_str());
+                }
+            }
+            _mkdir(parent.c_str());
+        }
+
+        addInfo(std::string(TR("log.init")) + TR("git.clone") + ": " + url);
+        std::string cmd = "git clone --depth 1 \"" + url + "\" \"" + m_projectRoot + "\" 2>&1";
+        FILE *pipe = _popen(cmd.c_str(), "r");
+        if (!pipe)
+        {
+            addError(std::string(TR("log.git")) + "cannot start");
+            m_procRunning = false;
+            return;
+        }
+        char buf[4096];
+        while (fgets(buf, sizeof(buf), pipe))
+        {
+            std::string l(buf);
+            while (!l.empty() && (l.back() == '\n' || l.back() == '\r'))
+                l.pop_back();
+            if (!l.empty())
+                addInfo("  " + stripAnsi(l));
+        }
+        int ec = _pclose(pipe);
+        if (ec != 0)
+        {
+            addError(std::string(TR("log.init")) + TR("env.init_clone_fail") + std::to_string(ec));
+            m_procRunning = false;
+            return;
+        }
+        addSuccess(std::string(TR("log.init")) + TR("env.init_clone_done"));
+    }
+    else
+    {
+        addSuccess(TR("git.exists"));
+    }
+
+    // ===== 2. 检查目录 =====
+    m_cliRoot = m_projectRoot + "/src/cli";
+    m_serverRoot = m_projectRoot + "/src/server";
+    refreshVenvState();
+    if (_access(m_cliRoot.c_str(), 0) != 0 || _access(m_serverRoot.c_str(), 0) != 0)
+        addWarn(std::string(TR("log.init")) + TR("env.init_missing_dirs"));
+    else
+        addSuccess(std::string(TR("log.init")) + TR("env.init_dirs_ok"));
+
+    // ===== 3. 创建虚拟环境 =====
+    addInfo(std::string(TR("log.init")) + TR("env.venv") + "...");
+    o.clear();
+    c = 0;
+    runPython("-m venv .venv", m_projectRoot, o, c);
+    if (c != 0)
+    {
+        addError(TR("env.venv_fail"));
+        if (!o.empty())
+            addError("[venv] " + o);
+        m_procRunning = false;
+        return;
+    }
+    addSuccess(TR("env.venv_ok"));
+    refreshVenvState();
+
+    // ===== 4. 安装依赖 =====
+    addInfo(std::string(TR("log.init")) + TR("env.install_cli") + "...");
+    o.clear();
+    c = 0;
+    runPython("-m pip install -r requirements.txt", m_cliRoot, o, c);
+    if (c != 0)
+    {
+        addError(std::string(TR("log.init")) + TR("env.init_cli_fail"));
+        if (!o.empty())
+            addError(std::string(TR("log.pip")) + o);
+    }
+    else
+        addSuccess(std::string(TR("log.init")) + TR("env.init_cli_ok"));
+
+    addInfo(std::string(TR("log.init")) + TR("env.install_srv") + "...");
+    o.clear();
+    c = 0;
+    runPython("-m pip install -r requirements.txt", m_serverRoot, o, c);
+    if (c != 0)
+    {
+        addError(std::string(TR("log.init")) + TR("env.init_srv_fail"));
+        if (!o.empty())
+            addError(std::string(TR("log.pip")) + o);
+    }
+    else
+        addSuccess(std::string(TR("log.init")) + TR("env.init_srv_ok"));
+
+    // ===== 5. 验证环境 =====
+    addInfo(std::string(TR("log.init")) + TR("env.verify") + "...");
+    o.clear();
+    c = 0;
+    runPython("verify_env.py", m_projectRoot, o, c);
+    if (c == 0 && !o.empty())
+        addInfo("  " + o);
+    else
+        addWarn(std::string(TR("log.init")) + TR("env.init_verify_warn"));
+    checkPython();
+
+    addSuccess(std::string(TR("log.init")) + TR("env.init_done"));
     m_procRunning = false;
 }
 
@@ -739,19 +910,24 @@ void App::renderFrame()
     glfwSwapBuffers(g_window);
 }
 
-// ==================== 主循环（按需渲染） ====================
-// 静态 UI 不重绘：GPU/CPU 占用归零；输入事件、窗口变化、后台日志更新时立即重绘
+// ==================== 主循环（事件驱动渲染） ====================
+// 静态 UI 不重绘；输入事件、窗口变化、后台日志更新时立即重绘
 void App::run()
 {
     ImGuiIO &io = ImGui::GetIO();
-    double lastMX = -1e9, lastMY = -1e9;
-    int lastFW = -1, lastFH = -1;
-    bool lastHovered = false;
 
     while (!glfwWindowShouldClose(g_window))
     {
-        // 阻塞等待输入/窗口事件（最多 20ms）；事件到达立即唤醒，无事件低功耗等待
-        glfwWaitEventsTimeout(0.02);
+        // 事件驱动渲染：glfwWaitEvents 无事件时无限阻塞（零 CPU/GPU），
+        // 任何输入/窗口事件或后台线程的 glfwPostEmptyEvent 都会立即唤醒并渲染一帧。
+        // 注意：不能用"事后检查 io 状态"来判断是否渲染——io 是上一帧的，事件需经
+        // NewFrame 才会反映，检查会造成按下/释放事件被吞、UI 交互卡顿。
+        // Demo 窗口（动画）或输入框聚焦（光标闪烁）时按 60fps 周期渲染。
+        bool anim = m_showDemo || io.WantTextInput;
+        if (anim)
+            glfwWaitEventsTimeout(0.016);
+        else
+            glfwWaitEvents();
 
         // 窗口最小化时跳过（framebuffer 尺寸为 0）
         int fw = 0, fh = 0;
@@ -759,49 +935,8 @@ void App::run()
         if (fw == 0 || fh == 0)
             continue;
 
-        // ---- 判断本帧是否需要重绘 ----
-        bool needRender = m_uiDirty.load(); // 后台线程日志/状态更新
-        if (!needRender && m_showDemo)
-            needRender = true; // ImGui Demo 含动画，需持续渲染
-        if (!needRender && io.WantTextInput)
-            needRender = true; // 输入框聚焦时保留光标闪烁动画
-        if (!needRender)
-        {
-            double mx, my;
-            glfwGetCursorPos(g_window, &mx, &my);
-            if (mx != lastMX || my != lastMY)
-                needRender = true; // 鼠标移动（含 hover 变化）
-        }
-        if (!needRender)
-            for (int i = 0; i < 5; i++)
-                if (io.MouseDown[i]) { needRender = true; break; }
-        if (!needRender && io.MouseWheel != 0.0f)
-            needRender = true;
-        if (!needRender)
-            for (int i = 0; i < IM_ARRAYSIZE(io.KeysData); i++)
-                if (io.KeysData[i].Down) { needRender = true; break; } // 任一按键按住（含打字输入）
-        if (!needRender && (fw != lastFW || fh != lastFH))
-            needRender = true; // 窗口尺寸变化
-        if (!needRender)
-        {
-            bool hovered = glfwGetWindowAttrib(g_window, GLFW_HOVERED) != 0;
-            if (hovered != lastHovered)
-                needRender = true; // 鼠标移入/移出窗口（清除/恢复 hover 高亮）
-        }
-
-        if (needRender)
-        {
-            renderFrame();
-            double mx, my;
-            glfwGetCursorPos(g_window, &mx, &my);
-            lastMX = mx;
-            lastMY = my;
-            lastFW = fw;
-            lastFH = fh;
-            lastHovered = glfwGetWindowAttrib(g_window, GLFW_HOVERED) != 0;
-            m_uiDirty = false;
-        }
-        // 无变化时不渲染：保持上一帧画面，GPU 占用归零
+        renderFrame();
+        m_uiDirty = false;
     }
 
     // 窗口关闭前保存配置（此时 g_window 仍然有效）
@@ -1109,8 +1244,10 @@ void App::renderLogArea()
     if (m_titleFont)
         ImGui::PopFont();
     ImGui::SameLine();
-    if (ImGui::SmallButton(TR("console.clear")))
+    if (ImGui::Button(TR("console.clear")))
         m_console.ClearLog();
+    ImGui::SameLine();
+    ImGui::Checkbox(TR("console.auto_scroll"), &m_autoScroll);
     ImGui::SameLine();
     ImGui::Text("  %s", TR("console.hint"));
     ImGui::Separator();
@@ -1156,10 +1293,11 @@ void App::renderLogArea()
     // 仅在进程运行时提供停止按钮
     std::function<void()> onStop;
     if (m_procRunning)
-        onStop = [this]() { stopProcess(); };
+        onStop = [this]()
+        { stopProcess(); };
     m_console.Draw("##con", ImVec2(0, -ih - th), true, send,
                    "train | resume | predict | node | verify | menu | server", m_monoFont,
-                   statusText.c_str(), statusColor, onStop, TR("nav.stop"));
+                   statusText.c_str(), statusColor, onStop, TR("nav.stop"), m_autoScroll);
 }
 
 // ==================== 状态栏 ====================
@@ -1233,31 +1371,9 @@ void App::renderEnvPanel()
 
     ImGui::SameLine();
 
-    // 右列：快捷操作 + GitHub 下载
+    // 右列：GitHub 下载 + 快捷操作
     ImGui::BeginGroup();
     {
-        beginCard("card_actions", TR("env.actions"), colW);
-        {
-            float bw = (ImGui::GetContentRegionAvail().x - gap) / 2.0f;
-            if (ImGui::Button(TR("env.install_cli"), ImVec2(bw, 34)))
-                startProcess("install CLI", "-m pip install -r requirements.txt", m_cliRoot);
-            ImGui::SameLine();
-            if (ImGui::Button(TR("env.install_srv"), ImVec2(bw, 34)))
-                startProcess("install server", "-m pip install -r requirements.txt", m_serverRoot);
-            if (ImGui::Button(TR("env.verify"), ImVec2(-1, 34)))
-                startProcess("verify env", "verify_env.py", m_projectRoot);
-            ImGui::Spacing();
-            if (ImGui::Button(TR("env.venv"), ImVec2(-1, 34)))
-                createVenv(false);
-            // .venv 已存在时提供“删除并重建”，避免 Permission denied
-            if (m_venvExists)
-            {
-                if (ImGui::Button(TR("env.venv_del"), ImVec2(-1, 34)))
-                    createVenv(true);
-            }
-        }
-        endCard();
-
         beginCard("card_git", TR("git.title"), colW);
         {
             ImGui::TextColored(ImVec4(0.55f, 0.58f, 0.63f, 1.0f), "%s", TR("git.url"));
@@ -1293,6 +1409,35 @@ void App::renderEnvPanel()
                         addWarn(std::string(TR("git.none")));
                 }
             }
+        }
+        endCard();
+
+        beginCard("card_actions", TR("env.actions"), colW);
+        {
+            float bw = (ImGui::GetContentRegionAvail().x - gap) / 2.0f;
+            // 卡片最上方：一键初始化（克隆→检查→创建环境→安装依赖→验证环境）
+            if (ImGui::Button(TR("env.init"), ImVec2(-1, 36)))
+                startInitProject();
+            ImGui::Spacing();
+
+            // 中间一行：创建环境（左）+ 验证环境（右）
+            if (ImGui::Button(TR("env.venv"), ImVec2(bw, 34)))
+                createVenv(false);
+            ImGui::SameLine();
+            if (ImGui::Button(TR("env.verify"), ImVec2(bw, 34)))
+                startProcess("verify env", "verify_env.py", m_projectRoot);
+
+            // 删除并重建（次要操作，独立一行）
+            if (ImGui::Button(TR("env.venv_del"), ImVec2(-1, 34)))
+                createVenv(true);
+
+            ImGui::Spacing();
+            // 卡片最下方：安装依赖 2 个按钮
+            if (ImGui::Button(TR("env.install_cli"), ImVec2(bw, 34)))
+                startProcess("install CLI", "-m pip install -r requirements.txt", m_cliRoot);
+            ImGui::SameLine();
+            if (ImGui::Button(TR("env.install_srv"), ImVec2(bw, 34)))
+                startProcess("install server", "-m pip install -r requirements.txt", m_serverRoot);
         }
         endCard();
     }

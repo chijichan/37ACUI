@@ -47,11 +47,75 @@ void ConsoleWidget::AddLog(const std::string &line)
     }
 }
 
+// 按显示宽度对文本做软换行：ImGui 的 InputTextMultiline 不自动换行（AddText wrap_width=0），
+// 超宽行会水平延伸。这里在重建显示缓冲时按字符 advance 累加宽度，超宽处插入 '\n'。
+void ConsoleWidget::RebuildDisplay(const std::string &text, float wrapWidth)
+{
+    m_displayBuf.clear();
+    m_displayBuf.reserve(text.size() + text.size() / 80 + 64);
+
+    const ImFont *cfont = ImGui::GetFont();
+    ImFont *font = const_cast<ImFont *>(cfont); // GetCharAdvance 非 const 成员
+    const float scale = ImGui::GetFontSize() / font->FontSize;
+    float x = 0.0f;
+    const char *p = text.c_str();
+    const char *end = p + text.size();
+    while (p < end)
+    {
+        unsigned int c = (unsigned char)*p;
+        const char *next = p + 1;
+        // 手动解码 UTF-8（避免依赖 imgui_internal.h）
+        if ((c & 0x80) == 0)
+        {
+            c = (unsigned char)*p;
+        }
+        else if ((c & 0xE0) == 0xC0 && p + 1 < end && ((unsigned char)p[1] & 0xC0) == 0x80)
+        {
+            c = ((c & 0x1F) << 6) | ((unsigned char)p[1] & 0x3F);
+            next = p + 2;
+        }
+        else if ((c & 0xF0) == 0xE0 && p + 2 < end && ((unsigned char)p[1] & 0xC0) == 0x80 && ((unsigned char)p[2] & 0xC0) == 0x80)
+        {
+            c = ((c & 0x0F) << 12) | (((unsigned char)p[1] & 0x3F) << 6) | ((unsigned char)p[2] & 0x3F);
+            next = p + 3;
+        }
+        else if ((c & 0xF8) == 0xF0 && p + 3 < end && ((unsigned char)p[1] & 0xC0) == 0x80 && ((unsigned char)p[2] & 0xC0) == 0x80 && ((unsigned char)p[3] & 0xC0) == 0x80)
+        {
+            c = ((c & 0x07) << 18) | (((unsigned char)p[1] & 0x3F) << 12) | (((unsigned char)p[2] & 0x3F) << 6) | ((unsigned char)p[3] & 0x3F);
+            next = p + 4;
+        }
+
+        if (c == '\n')
+        {
+            m_displayBuf += '\n';
+            x = 0.0f;
+            p = next;
+            continue;
+        }
+        if (c == '\r')
+        {
+            p = next;
+            continue;
+        }
+
+        const float w = font->GetCharAdvance((ImWchar)c) * scale;
+        if (x > 0.0f && x + w > wrapWidth)
+        {
+            m_displayBuf += '\n'; // 软换行：仅显示层插入，不改动原始日志
+            x = 0.0f;
+        }
+        m_displayBuf.append(p, next - p);
+        x += w;
+        p = next;
+    }
+}
+
 void ConsoleWidget::Draw(const char *title, ImVec2 size, bool hasInput,
                          std::function<void(const std::string &)> onCommand,
                          const char *hint, ImFont *monoFont,
                          const char *statusText, ImU32 statusColor,
-                         std::function<void()> onStop, const char *stopLabel)
+                         std::function<void()> onStop, const char *stopLabel,
+                         bool autoScroll)
 {
     // 深色终端配色
     const ImVec4 darkBg(0.105f, 0.115f, 0.135f, 1.00f);
@@ -59,7 +123,9 @@ void ConsoleWidget::Draw(const char *title, ImVec2 size, bool hasInput,
     const ImVec4 lightText(0.88f, 0.91f, 0.95f, 1.00f);
 
     // 用 BeginChild 包裹确保 InputTextMultiline 占满可用区域
-    ImGui::BeginChild("ConsoleOut", size, false, ImGuiWindowFlags_HorizontalScrollbar);
+    // 注意：不能加 ImGuiWindowFlags_HorizontalScrollbar——水平滚动会禁用换行，
+    // 超宽行将延伸到窗口外。换行由 RebuildDisplay 的软换行实现。
+    ImGui::BeginChild("ConsoleOut", size, false);
 
     // 输出区域 — InputTextMultiline 只读模式，原生支持框选和 Ctrl+C
     ImGui::PushStyleColor(ImGuiCol_FrameBg, darkBg);
@@ -69,16 +135,25 @@ void ConsoleWidget::Draw(const char *title, ImVec2 size, bool hasInput,
     if (monoFont)
         ImGui::PushFont(monoFont); // 等宽字体，更接近专业终端
 
-    // 仅当日志内容变化时才刷新显示缓冲，避免每帧 strncpy 最多 256KB 文本
-    // （此前 AddLog 保留最新 500KB，而显示缓冲只拷开头 256KB，日志超限后新内容看不到；
-    //   现在改为保留最新 256KB）
-    if (m_fullText.size() != m_displaySize)
+    // 仅当内容变化或窗口宽度变化时重建显示缓冲（避免每帧重建，也避免每帧 strncpy）
+    // 保留最新 256KB 原始文本，软换行后超宽行折行显示。
+    const bool contentChanged = (m_fullText.size() != m_displaySize);
+    const float availW = ImGui::GetContentRegionAvail().x;
+    const float wrapW = availW - ImGui::GetStyle().FramePadding.x * 2.0f - ImGui::GetStyle().ScrollbarSize;
+    if (contentChanged || wrapW != m_wrapWidth)
     {
         m_displaySize = m_fullText.size();
-        m_displayBuf = m_fullText;
-        if (m_displayBuf.size() > kMaxDisplayBytes)
-            m_displayBuf.erase(0, m_displayBuf.size() - kMaxDisplayBytes); // 保留最新部分
+        m_wrapWidth = wrapW;
+        std::string src = m_fullText;
+        if (src.size() > kMaxDisplayBytes)
+            src.erase(0, src.size() - kMaxDisplayBytes); // 保留最新部分
+        RebuildDisplay(src, wrapW);
     }
+
+    // 自动滚动：内容新增时让 InputTextMultiline 内部滚动区跳到最底部（最新日志）
+    // SetNextWindowScroll 作用于下一个窗口，即 InputTextMultiline 内部创建的 child。
+    if (autoScroll && contentChanged)
+        ImGui::SetNextWindowScroll(ImVec2(0.0f, 1e9f));
 
     ImGui::InputTextMultiline("##console_out", &m_displayBuf[0], (int)m_displayBuf.size() + 1,
                               ImVec2(-1, -1), ImGuiInputTextFlags_ReadOnly);

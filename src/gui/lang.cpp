@@ -31,6 +31,7 @@ LangSys::LangSys()
     // Console
     m_data["console.title"] = {"控制台", "Console"};
     m_data["console.clear"] = {"清空", "clear"};
+    m_data["console.auto_scroll"] = {"自动滚动", "Auto-scroll"};
     m_data["console.hint"] = {"| 拖选复制 | 上下键历史", "| select+copy | up/down history"};
 
     // Nav
@@ -78,6 +79,21 @@ LangSys::LangSys()
     m_data["env.cli"] = {"CLI:", "CLI:"};
     m_data["env.srv"] = {"服务端:", "server:"};
     m_data["env.actions"] = {"快捷操作", "Quick actions"};
+    m_data["env.init"] = {"初始化项目", "Init project"};
+    m_data["env.init_start"] = {"开始初始化项目...", "starting project init..."};
+    m_data["env.init_clone_done"] = {"克隆完成", "clone done"};
+    m_data["env.init_clone_fail"] = {"克隆失败 exit=", "clone failed exit="};
+    m_data["env.init_missing_dirs"] = {"注意: src/cli 或 src/server 不存在，依赖安装可能失败", "warning: src/cli or src/server missing, deps install may fail"};
+    m_data["env.init_dirs_ok"] = {"目录检查通过", "directory check passed"};
+    m_data["env.init_cli_fail"] = {"CLI 依赖安装失败", "CLI deps install failed"};
+    m_data["env.init_cli_ok"] = {"CLI 依赖安装完成", "CLI deps installed"};
+    m_data["env.init_srv_fail"] = {"服务端依赖安装失败", "server deps install failed"};
+    m_data["env.init_srv_ok"] = {"服务端依赖安装完成", "server deps installed"};
+    m_data["env.init_verify_warn"] = {"verify_env.py 未通过或不存在，可手动点击「验证环境」检查", "verify_env.py not passed or missing, click 'Verify env' to check"};
+    m_data["env.init_done"] = {"初始化完成！", "project initialized!"};
+    m_data["log.init"] = {"[init] ", "[init] "};
+    m_data["log.pip"] = {"[pip] ", "[pip] "};
+    m_data["git.not_found"] = {"git not found", "git not found"};
     m_data["env.install_cli"] = {"安装 CLI 依赖", "Install CLI deps"};
     m_data["env.install_srv"] = {"安装服务端依赖", "Install server deps"};
     m_data["env.verify"] = {"验证环境", "Verify env"};

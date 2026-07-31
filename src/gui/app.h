@@ -39,6 +39,7 @@ public:
     bool isProcRunning() const { return m_procRunning; }
 
     void startGitClone(const std::string &repoUrl, const std::string &targetDir);
+    void startInitProject(); // 一键初始化：克隆→检查→创建环境→安装依赖→验证环境
 
 private:
     void render();
@@ -59,7 +60,8 @@ private:
 
     void procThreadFunc(const std::string &name, const std::string &cmd,
                         const std::string &cwd);
-    void venvThreadFunc(bool recreate); // 后台线程：删除旧 .venv + 创建新环境
+    void venvThreadFunc(bool recreate);                 // 后台线程：删除旧 .venv + 创建新环境
+    void initProjectThreadFunc(const std::string &url); // 后台线程：一键初始化项目流程
 
     void saveConfig();
     void loadConfig();
@@ -86,4 +88,5 @@ private:
     int m_winX = 100, m_winY = 50, m_winW = 1280, m_winH = 800;
     int m_serverStatus = -1;
     bool m_venvExists = false; // .venv 是否存在（缓存，避免每帧 _access 造成持续磁盘 IO）
+    bool m_autoScroll = true;  // 控制台自动滚动到底部
 };
