@@ -355,23 +355,25 @@ bool App::init(const char *title, int width, int height)
     s.ScrollbarSize = 10.0f;
     s.ItemSpacing = ImVec2(8, 6);
 
+    // 正文保留 Full 范围，避免控制台输出出现生僻字时缺字
     io.Fonts->AddFontFromFileTTF("C:/Windows/Fonts/msyh.ttc", 16.0f, nullptr,
                                  io.Fonts->GetGlyphRangesChineseFull());
+    // 以下字体改用常用简体字范围（约 2500 字），大幅缩小字体纹理
     // 大字号 Logo 字体（26px ≈ 16px 的 1.6 倍）
     m_bigFont = io.Fonts->AddFontFromFileTTF("C:/Windows/Fonts/msyh.ttc", 26.0f, nullptr,
-                                             io.Fonts->GetGlyphRangesChineseFull());
+                                             io.Fonts->GetGlyphRangesChineseSimplifiedCommon());
     // 卡片标题字体（加粗，比正文大 2px）
     m_titleFont = io.Fonts->AddFontFromFileTTF("C:/Windows/Fonts/msyhbd.ttc", 18.0f, nullptr,
-                                               io.Fonts->GetGlyphRangesChineseFull());
+                                               io.Fonts->GetGlyphRangesChineseSimplifiedCommon());
     // 控制台等宽字体（Consolas），缺失的 CJK 字形用微软雅黑补齐
     m_monoFont = io.Fonts->AddFontFromFileTTF("C:/Windows/Fonts/consola.ttf", 15.0f, nullptr,
-                                              io.Fonts->GetGlyphRangesChineseFull());
+                                              io.Fonts->GetGlyphRangesChineseSimplifiedCommon());
     if (m_monoFont)
     {
         ImFontConfig cfg;
         cfg.MergeMode = true; // 合并到最后一个字体（consola）
         io.Fonts->AddFontFromFileTTF("C:/Windows/Fonts/msyh.ttc", 15.0f, &cfg,
-                                     io.Fonts->GetGlyphRangesChineseFull());
+                                     io.Fonts->GetGlyphRangesChineseSimplifiedCommon());
     }
 
     ImGui_ImplGlfw_InitForOpenGL(g_window, true);
