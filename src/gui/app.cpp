@@ -99,7 +99,7 @@ static bool navItem(const char *label, bool selected)
     if (selected)
     {
         ImDrawList *dl = ImGui::GetWindowDrawList();
-        float inset = 3.0f;      // 上下仅留 3px 边距，几乎覆盖全高
+        float inset = 3.0f; // 上下仅留 3px 边距，几乎覆盖全高
         float barW = 4.0f;
         float rounding = ImGui::GetStyle().FrameRounding; // 3.0f，与按钮圆角一致
         dl->AddRectFilled(
@@ -1076,7 +1076,7 @@ void App::renderStatusBar()
     ImGui::Text("%s %s", TR("status.project"), m_projectRoot.c_str());
 
     // 进程状态显示在右下角
-    ImGui::SameLine(ImGui::GetContentRegionMax().x - ImGui::GetCursorPosX() - 100.0f);
+    ImGui::SameLine(ImGui::GetContentRegionMax().x - ImGui::GetCursorPosX() - 130.0f);
     if (m_procRunning)
     {
         ImGui::TextColored(ImVec4(1.0f, 0.65f, 0.0f, 1), "%s%s", TR("nav.status"), TR("nav.running"));
