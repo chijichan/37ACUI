@@ -86,6 +86,13 @@ set(ACUI_HEADERS
 )
 
 # ========================
+# 程序图标 (Windows .rc 资源)
+# ========================
+if(WIN32)
+    set(ACUI_RESOURCES resources/app.rc)
+endif()
+
+# ========================
 # 可执行文件
 # ========================
 # WIN32 关键字：Windows GUI 子系统，避免启动时弹出黑色控制台窗口。
@@ -95,6 +102,7 @@ if(WIN32)
     set(_ACUI_TARGET_KIND WIN32)
 endif()
 add_executable(${PROJECT_NAME} ${_ACUI_TARGET_KIND} ${ACUI_SOURCES} ${ACUI_HEADERS}
+    ${ACUI_RESOURCES}
     ${IMGUI_SOURCES}
     ${IMPLOT_SOURCES}
 )

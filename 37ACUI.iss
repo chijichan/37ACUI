@@ -6,7 +6,7 @@
 
 ; ---- 预处理器常量（可通过 iscc /Dxxx=yyy 覆盖）----
 #ifndef AppVersion
-  #define AppVersion "1.0.0"
+  #define AppVersion "0.0.1"
 #endif
 #ifndef AppId
   #define AppId "{{6E5F7A93-2B4C-4D8E-9F1A-3C7D5E9B2A41}"
@@ -45,6 +45,7 @@ WizardStyle=modern dynamic
 UninstallDisplayIcon={app}\ACUI.exe
 UninstallDisplayName=37ACUI
 
+SetupIconFile=resources\37AC.ico
 LicenseFile=LICENSE
 VersionInfoVersion={#AppVersion}
 VersionInfoCompany=37ACUI Project

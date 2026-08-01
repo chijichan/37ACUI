@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <cstdio>
 #include <cstring>
+#include <vector>
 #include <chrono>
 #include <thread>
 #include <direct.h>
@@ -16,6 +17,82 @@
 #include <shlobj.h>
 
 static GLFWwindow *g_window = nullptr;
+
+// 从 .exe 嵌入资源加载图标并设置为 GLFW 窗口图标（任务栏 + 标题栏）
+static void setWindowIcon()
+{
+    // 加载图标资源（ID 101，与 app.rc 一致）
+    HICON hIcon = (HICON)LoadImage(
+        GetModuleHandle(nullptr),
+        MAKEINTRESOURCE(101),
+        IMAGE_ICON,
+        0, 0,              // 0 = 使用系统默认尺寸
+        LR_DEFAULTSIZE | LR_SHARED);
+    if (!hIcon)
+        return;
+
+    // 获取图标实际尺寸
+    ICONINFO ii = {};
+    if (!GetIconInfo(hIcon, &ii))
+        return;
+
+    BITMAP bm = {};
+    GetObject(ii.hbmColor, sizeof(bm), &bm);
+    int w = bm.bmWidth;
+    int h = bm.bmHeight;
+
+    if (w <= 0 || h <= 0)
+    {
+        DeleteObject(ii.hbmColor);
+        DeleteObject(ii.hbmMask);
+        return;
+    }
+
+    // 分配 RGBA 像素缓冲区
+    std::vector<unsigned char> pixels(static_cast<size_t>(w) * h * 4);
+
+    // 用 BitBlt 从图标 DC 中提取 RGBA 数据
+    HDC hdcScreen = GetDC(nullptr);
+    HDC hdcMem = CreateCompatibleDC(hdcScreen);
+    HBITMAP hBmp = CreateCompatibleBitmap(hdcScreen, w, h);
+    HGDIOBJ oldBmp = SelectObject(hdcMem, hBmp);
+
+    // 将图标绘制到内存位图
+    DrawIconEx(hdcMem, 0, 0, hIcon, w, h, 0, nullptr, DI_NORMAL);
+
+    // 读取像素 (BGRA -> RGBA)
+    BITMAPINFO bi = {};
+    bi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+    bi.bmiHeader.biWidth = w;
+    bi.bmiHeader.biHeight = -h; // 负值 = 自上而下
+    bi.bmiHeader.biPlanes = 1;
+    bi.bmiHeader.biBitCount = 32;
+    bi.bmiHeader.biCompression = BI_RGB;
+
+    GetDIBits(hdcMem, hBmp, 0, h, pixels.data(), &bi, DIB_RGB_COLORS);
+
+    // BGRA -> RGBA
+    for (int i = 0; i < w * h; i++)
+    {
+        unsigned char r = pixels[i * 4 + 2];
+        unsigned char b = pixels[i * 4 + 0];
+        pixels[i * 4 + 0] = r;
+        pixels[i * 4 + 2] = b;
+    }
+
+    // 设置 GLFW 窗口图标
+    GLFWimage img = { w, h, pixels.data() };
+    glfwSetWindowIcon(g_window, 1, &img);
+
+    // 清理
+    SelectObject(hdcMem, oldBmp);
+    DeleteObject(hBmp);
+    DeleteDC(hdcMem);
+    ReleaseDC(nullptr, hdcScreen);
+    DeleteObject(ii.hbmColor);
+    DeleteObject(ii.hbmMask);
+    // hIcon 是 LR_SHARED 加载的，不需要也不应手动销毁
+}
 
 static void glfw_error_callback(int error, const char *desc)
 {
@@ -300,6 +377,9 @@ bool App::init(const char *title, int width, int height)
 
     glfwMakeContextCurrent(g_window);
     glfwSwapInterval(1);
+
+    // 设置窗口图标（任务栏 + 标题栏，从嵌入资源加载）
+    setWindowIcon();
 
     // 自动获取程序地址（exe 所在目录）
     {
