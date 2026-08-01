@@ -26,7 +26,7 @@ static void setWindowIcon()
         GetModuleHandle(nullptr),
         MAKEINTRESOURCE(101),
         IMAGE_ICON,
-        0, 0,              // 0 = 使用系统默认尺寸
+        0, 0, // 0 = 使用系统默认尺寸
         LR_DEFAULTSIZE | LR_SHARED);
     if (!hIcon)
         return;
@@ -81,7 +81,7 @@ static void setWindowIcon()
     }
 
     // 设置 GLFW 窗口图标
-    GLFWimage img = { w, h, pixels.data() };
+    GLFWimage img = {w, h, pixels.data()};
     glfwSetWindowIcon(g_window, 1, &img);
 
     // 清理
