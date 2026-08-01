@@ -3,6 +3,7 @@
 #include <string>
 #include <vector>
 #include <functional>
+#include <mutex>
 #include "imgui.h"
 
 class ConsoleWidget
@@ -23,6 +24,7 @@ public:
     void FocusInput() { m_reclaimFocus = true; }
 
 private:
+    mutable std::mutex m_mutex;                                    // 保护 m_fullText：后台线程 AddLog 与渲染线程读取并发
     std::string m_fullText;                                        // 全部文本（保留最新 500KB）
     std::string m_displayBuf;                                      // 显示缓冲：软换行后的文本，仅内容/宽度变化时重建
     size_t m_displaySize = (size_t)-1;                             // 上次重建时的 m_fullText 长度

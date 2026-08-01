@@ -153,17 +153,45 @@ void App::updateProjectPaths()
     std::string base = m_programDir;
     while (!base.empty() && (base.back() == '/' || base.back() == '\\'))
         base.pop_back();
+    std::lock_guard<std::mutex> lock(m_stateMutex);
     m_projectRoot = base + "/project/37AC";
     m_cliRoot = m_projectRoot + "/src/cli";
     m_serverRoot = m_projectRoot + "/src/server";
-    refreshVenvState();
 }
 
 // 缓存 .venv 是否存在。渲染循环中查询文件系统（_access）成本高：
 // 路径不存在时要逐级解析整条路径链，100fps 下会造成持续磁盘 IO。
 void App::refreshVenvState()
 {
-    m_venvExists = (_access((m_projectRoot + "/.venv").c_str(), 0) == 0);
+    std::string root;
+    {
+        std::lock_guard<std::mutex> lock(m_stateMutex);
+        root = m_projectRoot;
+    }
+    bool exists = (_access((root + "/.venv").c_str(), 0) == 0);
+    {
+        std::lock_guard<std::mutex> lock(m_stateMutex);
+        m_venvExists = exists;
+    }
+}
+
+// 线程安全：更新 Python 检测结果（后台线程调用，主线程渲染读取）
+void App::setPythonState(bool ok, const std::string &ver)
+{
+    std::lock_guard<std::mutex> lock(m_stateMutex);
+    m_pythonOk = ok;
+    m_pythonVersion = ver;
+}
+
+// 线程安全：关闭并置空 stdin 写端句柄，避免与 worker 线程双重 CloseHandle
+void App::closeProcStdin()
+{
+    std::lock_guard<std::mutex> lock(m_procStdinMutex);
+    if (m_procStdinWrite)
+    {
+        CloseHandle((HANDLE)m_procStdinWrite);
+        m_procStdinWrite = nullptr;
+    }
 }
 
 void App::saveConfig()
@@ -251,6 +279,8 @@ App::~App()
     stopProcess();
     if (m_procThread.joinable())
         m_procThread.join();
+    if (m_pingThread.joinable())
+        m_pingThread.join();
 }
 
 // ==================== 初始化 ====================
@@ -299,8 +329,9 @@ bool App::init(const char *title, int width, int height)
 
     // 从统一配置恢复（配置中如有 program= 会覆盖自动获取值）
     loadConfig();
-    // 确保默认路径按程序地址推导
-    updateProjectPaths();
+    // loadConfig 内部已按 program 推导默认路径、并按 project= 保留自定义值，
+    // 此处不可再调用 updateProjectPaths()（会无条件覆盖用户自定义的 project=）。
+    refreshVenvState(); // 根据最终路径刷新 .venv 存在性缓存
 
     // 检查窗口位置是否有效，防止跑到屏幕外
     {
@@ -328,6 +359,8 @@ bool App::init(const char *title, int width, int height)
         }
     }
     glfwSetWindowPos(g_window, m_winX, m_winY);
+    // 恢复上次保存的窗口大小（仅位置恢复会导致用户调整的大小在重启后丢失）
+    glfwSetWindowSize(g_window, m_winW, m_winH);
 
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
@@ -436,25 +469,32 @@ void App::addLog(const std::string &msg, unsigned int)
 // ==================== Python ====================
 bool App::checkPython()
 {
+    // 快照项目根路径：本函数可能被后台线程（克隆/建环境/初始化）调用
+    std::string proot;
+    {
+        std::lock_guard<std::mutex> lock(m_stateMutex);
+        proot = m_projectRoot;
+    }
     std::string out;
     int ec = 0;
-    bool ok = runPython("--version", m_projectRoot, out, ec);
+    bool ok = runPython("--version", proot, out, ec);
     if (ok && ec == 0)
     {
-        m_pythonVersion = out;
-        m_pythonOk = true;
         std::string v;
         int vc = 0;
         runPython("-c \"import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}')\"",
-                  m_projectRoot, v, vc);
+                  proot, v, vc);
         if (vc == 0 && !v.empty())
-            m_pythonVersion = v;
+            setPythonState(true, v);
+        else
+            setPythonState(true, out);
     }
     else
     {
-        m_pythonVersion = "not found";
-        m_pythonOk = false;
+        setPythonState(false, "not found");
     }
+    // 加锁读取，避免与后台线程写入竞争
+    std::lock_guard<std::mutex> lock(m_stateMutex);
     return m_pythonOk;
 }
 
@@ -469,7 +509,10 @@ bool App::runPython(const std::string &cmd, const std::string &cwd,
     // 这样项目目录缺失时仍能正确检测系统 Python，而不是误报 not found。
     std::string workDir = cwd;
     if (_access(workDir.c_str(), 0) != 0)
+    {
+        std::lock_guard<std::mutex> lock(m_stateMutex);
         workDir = m_programDir;
+    }
 
     std::string py = workDir + "/.venv/Scripts/python.exe";
     if (_access(py.c_str(), 0) != 0)
@@ -521,7 +564,13 @@ void App::createVenv(bool recreate)
 
 void App::venvThreadFunc(bool recreate)
 {
-    std::string venvDir = m_projectRoot + "/.venv";
+    // 快照项目根路径：本线程全程使用局部副本，避免与主线程设置页编辑竞争
+    std::string proot;
+    {
+        std::lock_guard<std::mutex> lock(m_stateMutex);
+        proot = m_projectRoot;
+    }
+    std::string venvDir = proot + "/.venv";
     if (recreate && _access(venvDir.c_str(), 0) == 0)
     {
         addWarn(std::string(TR("env.venv_del_ok")));
@@ -534,7 +583,7 @@ void App::venvThreadFunc(bool recreate)
 
     std::string o;
     int c = 0;
-    runPython("-m venv .venv", m_projectRoot, o, c);
+    runPython("-m venv .venv", proot, o, c);
     if (c == 0)
     {
         addSuccess(TR("env.venv_ok"));
@@ -574,9 +623,15 @@ void App::initProjectThreadFunc(const std::string &url)
 {
     std::string o;
     int c = 0;
+    // 快照项目根路径：本线程全程使用局部副本，避免与主线程设置页编辑竞争
+    std::string proot;
+    {
+        std::lock_guard<std::mutex> lock(m_stateMutex);
+        proot = m_projectRoot;
+    }
 
     // ===== 1. 克隆 37AC（目录不存在时） =====
-    if (_access(m_projectRoot.c_str(), 0) != 0)
+    if (_access(proot.c_str(), 0) != 0)
     {
         FILE *t = _popen("git --version 2>&1", "r");
         if (!t)
@@ -596,7 +651,7 @@ void App::initProjectThreadFunc(const std::string &url)
         _pclose(t);
 
         // 确保父目录（project/）存在，git clone 才能创建目标目录
-        std::string parent = m_projectRoot;
+        std::string parent = proot;
         auto pos = parent.find_last_of("/\\");
         if (pos != std::string::npos)
         {
@@ -615,7 +670,7 @@ void App::initProjectThreadFunc(const std::string &url)
         }
 
         addInfo(std::string(TR("log.init")) + TR("git.clone") + ": " + url);
-        std::string cmd = "git clone --depth 1 \"" + url + "\" \"" + m_projectRoot + "\" 2>&1";
+        std::string cmd = "git clone --depth 1 \"" + url + "\" \"" + proot + "\" 2>&1";
         FILE *pipe = _popen(cmd.c_str(), "r");
         if (!pipe)
         {
@@ -647,8 +702,12 @@ void App::initProjectThreadFunc(const std::string &url)
     }
 
     // ===== 2. 检查目录 =====
-    m_cliRoot = m_projectRoot + "/src/cli";
-    m_serverRoot = m_projectRoot + "/src/server";
+    {
+        std::lock_guard<std::mutex> lock(m_stateMutex);
+        std::string root = m_projectRoot; // 锁内拷贝，避免与主线程渲染竞争
+        m_cliRoot = root + "/src/cli";
+        m_serverRoot = root + "/src/server";
+    }
     refreshVenvState();
     if (_access(m_cliRoot.c_str(), 0) != 0 || _access(m_serverRoot.c_str(), 0) != 0)
         addWarn(std::string(TR("log.init")) + TR("env.init_missing_dirs"));
@@ -659,7 +718,7 @@ void App::initProjectThreadFunc(const std::string &url)
     addInfo(std::string(TR("log.init")) + TR("env.venv") + "...");
     o.clear();
     c = 0;
-    runPython("-m venv .venv", m_projectRoot, o, c);
+    runPython("-m venv .venv", proot, o, c);
     if (c != 0)
     {
         addError(TR("env.venv_fail"));
@@ -702,7 +761,7 @@ void App::initProjectThreadFunc(const std::string &url)
     addInfo(std::string(TR("log.init")) + TR("env.verify") + "...");
     o.clear();
     c = 0;
-    runPython("verify_env.py", m_projectRoot, o, c);
+    runPython("verify_env.py", proot, o, c);
     if (c == 0 && !o.empty())
         addInfo("  " + o);
     else
@@ -739,7 +798,10 @@ void App::procThreadFunc(const std::string &name, const std::string &cmd,
     HANDLE hInR, hInW;
     CreatePipe(&hInR, &hInW, &sa, 0);
     SetHandleInformation(hInW, HANDLE_FLAG_INHERIT, 0);
-    m_procStdinWrite = hInW;
+    {
+        std::lock_guard<std::mutex> lock(m_procStdinMutex);
+        m_procStdinWrite = hInW;
+    }
 
     STARTUPINFOA si = {sizeof(si)};
     si.dwFlags = STARTF_USESTDHANDLES;
@@ -756,11 +818,7 @@ void App::procThreadFunc(const std::string &name, const std::string &cmd,
         addError(std::string("[error] ") + name + " code=" + std::to_string(GetLastError()));
         CloseHandle(hOutR);
         // 失败路径：hInW 从未传给子进程，必须关闭，避免句柄泄漏
-        if (m_procStdinWrite)
-        {
-            CloseHandle((HANDLE)m_procStdinWrite);
-            m_procStdinWrite = nullptr;
-        }
+        closeProcStdin();
         m_procRunning = false;
         m_procPid = 0;
         return;
@@ -821,11 +879,7 @@ void App::procThreadFunc(const std::string &name, const std::string &cmd,
     else
         addError(std::string("[done] ") + name + " exit=" + std::to_string(ec));
     // 进程自然结束时关闭 stdin 写端句柄（若未被 stopProcess 提前关闭）
-    if (m_procStdinWrite)
-    {
-        CloseHandle((HANDLE)m_procStdinWrite);
-        m_procStdinWrite = nullptr;
-    }
+    closeProcStdin();
     m_procRunning = false;
     m_procPid = 0;
 }
@@ -838,11 +892,7 @@ void App::startProcess(const std::string &name, const std::string &cmd,
         addWarn("[warn] process already running");
         return;
     }
-    if (m_procStdinWrite)
-    {
-        CloseHandle(m_procStdinWrite);
-        m_procStdinWrite = nullptr;
-    }
+    closeProcStdin(); // 清理可能残留的旧句柄
     m_procRunning = true;
     if (m_procThread.joinable())
         m_procThread.join();
@@ -855,11 +905,7 @@ void App::stopProcess()
         return;
     addWarn("[warn] terminating...");
     m_procRunning = false;
-    if (m_procStdinWrite)
-    {
-        CloseHandle(m_procStdinWrite);
-        m_procStdinWrite = nullptr;
-    }
+    closeProcStdin();
     // 只终止自己启动的子进程（按 PID），不再 taskkill 系统上所有 python.exe
     unsigned long pid = m_procPid.load();
     if (pid != 0)
@@ -890,17 +936,22 @@ void App::startGitClone(const std::string &url, const std::string &dir)
                                {
         FILE *t = _popen("git --version 2>&1","r");
         if (t) { char b[256]; if(fgets(b,sizeof(b),t)){std::string v(b); while(!v.empty()&&(v.back()=='\n'||v.back()=='\r'))v.pop_back(); addInfo(std::string("[Git] ")+v);} _pclose(t); }
-        else { addError("[Git] git not found"); m_procRunning=m_gitCloning=false; return; }
+        else { addError("[Git] git not found"); { std::lock_guard<std::mutex> lock(m_stateMutex); m_gitCloning=false; } m_procRunning=false; return; }
         if (_access(dir.c_str(),0)==0) { addWarn("[Git] removing old..."); system(("cmd /c rmdir /s /q \""+dir+"\"").c_str()); }
         std::string cmd = "git clone --depth 1 \""+url+"\" \""+dir+"\" 2>&1";
         FILE *pipe = _popen(cmd.c_str(),"r");
-        if(!pipe){addError("[Git] cannot start"); m_procRunning=m_gitCloning=false; return;}
+        if(!pipe){addError("[Git] cannot start"); { std::lock_guard<std::mutex> lock(m_stateMutex); m_gitCloning=false; } m_procRunning=false; return;}
         char buf[4096];
         while(fgets(buf,sizeof(buf),pipe)){std::string l(buf); while(!l.empty()&&(l.back()=='\n'||l.back()=='\r'))l.pop_back(); if(!l.empty())addInfo("  "+stripAnsi(l));}
         int ec=_pclose(pipe);
-        if(ec==0){addSuccess("[Git] clone success!"); m_projectRoot=dir; m_cliRoot=dir+"/src/cli"; m_serverRoot=dir+"/src/server"; refreshVenvState(); checkPython();}
+        {
+            std::lock_guard<std::mutex> lock(m_stateMutex);
+            if(ec==0){ m_projectRoot=dir; m_cliRoot=dir+"/src/cli"; m_serverRoot=dir+"/src/server"; }
+            m_gitCloning=false;
+        }
+        if(ec==0){addSuccess("[Git] clone success!"); refreshVenvState(); checkPython();}
         else addError(std::string("[Git] clone failed exit=")+std::to_string(ec));
-        m_procRunning=m_gitCloning=false; });
+        m_procRunning=false; });
 }
 
 // ==================== 渲染一帧 ====================
@@ -950,13 +1001,16 @@ void App::run()
     }
 
     // 窗口关闭前保存配置（此时 g_window 仍然有效）
-    saveConfig();
-    // 显式保存一次 ImGui 窗口布局（NoAutoSave 下自动保存已禁用）
+    // 先显式保存 ImGui 窗口布局（NoAutoSave 下自动保存已禁用）
     ImGui::SaveIniSettingsToDisk("acui.ini");
 
     stopProcess();
     if (m_procThread.joinable())
         m_procThread.join();
+    if (m_pingThread.joinable())
+        m_pingThread.join();
+    // worker 线程已全部 join，此时读路径等共享成员无竞争
+    saveConfig();
     ImGui_ImplOpenGL3_Shutdown();
     ImGui_ImplGlfw_Shutdown();
     ImPlot::DestroyContext();
@@ -1149,6 +1203,14 @@ void App::renderToolsPanel()
 // ==================== 设置页（语言 + Git 配置） ====================
 void App::renderSettingsPanel()
 {
+    // 快照跨线程共享状态（worker 克隆完成时会写 m_projectRoot 等）
+    std::string progDir, proot;
+    {
+        std::lock_guard<std::mutex> lock(m_stateMutex);
+        progDir = m_programDir;
+        proot = m_projectRoot;
+    }
+
     // ---- 语言 ----
     beginCard("card_lang", TR("settings.language"));
     {
@@ -1168,11 +1230,15 @@ void App::renderSettingsPanel()
         float bw = 80.0f;
         ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - bw - ImGui::GetStyle().ItemSpacing.x);
         static char programBuf[512] = "";
-        strncpy_s(programBuf, m_programDir.c_str(), sizeof(programBuf) - 1);
+        strncpy_s(programBuf, progDir.c_str(), sizeof(programBuf) - 1);
         if (ImGui::InputText("##pd", programBuf, sizeof(programBuf)))
         {
-            m_programDir = programBuf;
-            updateProjectPaths();
+            {
+                std::lock_guard<std::mutex> lock(m_stateMutex);
+                m_programDir = programBuf;
+            }
+            updateProjectPaths(); // 内部加锁更新 project/cli/server
+            refreshVenvState();
         }
         ImGui::SameLine();
         ImGui::PushID("browse_program");
@@ -1187,14 +1253,18 @@ void App::renderSettingsPanel()
             {
                 if (SHGetPathFromIDListA(pidl, path))
                 {
-                    m_programDir = path;
-                    updateProjectPaths();
+                    {
+                        std::lock_guard<std::mutex> lock(m_stateMutex);
+                        m_programDir = path;
+                    }
+                    updateProjectPaths(); // 内部加锁更新 project/cli/server
+                    refreshVenvState();
                 }
                 CoTaskMemFree(pidl);
             }
         }
         ImGui::PopID();
-        ImGui::TextDisabled("  %s %s", TR("git.dir"), m_projectRoot.c_str());
+        ImGui::TextDisabled("  %s %s", TR("git.dir"), proot.c_str());
     }
     endCard();
 
@@ -1210,12 +1280,15 @@ void App::renderSettingsPanel()
         float bw = 80.0f;
         ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - bw - ImGui::GetStyle().ItemSpacing.x);
         static char projectBuf[512] = "";
-        strncpy_s(projectBuf, m_projectRoot.c_str(), sizeof(projectBuf) - 1);
+        strncpy_s(projectBuf, proot.c_str(), sizeof(projectBuf) - 1);
         if (ImGui::InputText("##gd", projectBuf, sizeof(projectBuf)))
         {
-            m_projectRoot = projectBuf;
-            m_cliRoot = m_projectRoot + "/src/cli";
-            m_serverRoot = m_projectRoot + "/src/server";
+            {
+                std::lock_guard<std::mutex> lock(m_stateMutex);
+                m_projectRoot = projectBuf;
+                m_cliRoot = m_projectRoot + "/src/cli";
+                m_serverRoot = m_projectRoot + "/src/server";
+            }
             refreshVenvState();
         }
         ImGui::SameLine();
@@ -1230,12 +1303,15 @@ void App::renderSettingsPanel()
             if (pidl)
             {
                 if (SHGetPathFromIDListA(pidl, path))
+                {
+                    // 目标目录 = 项目根
+                    std::lock_guard<std::mutex> lock(m_stateMutex);
                     m_projectRoot = path;
+                    m_cliRoot = m_projectRoot + "/src/cli";
+                    m_serverRoot = m_projectRoot + "/src/server";
+                }
                 CoTaskMemFree(pidl);
             }
-            // 目标目录 = 项目根
-            m_cliRoot = m_projectRoot + "/src/cli";
-            m_serverRoot = m_projectRoot + "/src/server";
             refreshVenvState();
         }
         ImGui::PopID();
@@ -1264,11 +1340,17 @@ void App::renderLogArea()
     ImGui::Separator();
     auto send = [this](const std::string &c)
     {
-        if (m_procStdinWrite)
+        // 锁内取句柄副本，锁外 WriteFile：避免持锁阻塞（管道满时 WriteFile 会等待）
+        HANDLE hStdin = nullptr;
+        {
+            std::lock_guard<std::mutex> lock(m_procStdinMutex);
+            hStdin = (HANDLE)m_procStdinWrite;
+        }
+        if (hStdin)
         {
             std::string s = c + "\n";
             DWORD w;
-            WriteFile(m_procStdinWrite, s.c_str(), (DWORD)s.size(), &w, 0);
+            WriteFile(hStdin, s.c_str(), (DWORD)s.size(), &w, 0);
         }
         else
         {
@@ -1314,6 +1396,15 @@ void App::renderLogArea()
 // ==================== 状态栏 ====================
 void App::renderStatusBar()
 {
+    // 快照跨线程共享状态，避免与后台线程（克隆/建环境/检测）竞争
+    bool pyOk = false;
+    std::string proot;
+    {
+        std::lock_guard<std::mutex> lock(m_stateMutex);
+        pyOk = m_pythonOk;
+        proot = m_projectRoot;
+    }
+
     ImVec2 vs = ImGui::GetIO().DisplaySize;
     ImGui::SetNextWindowPos(ImVec2(0, vs.y - 24));
     ImGui::SetNextWindowSize(ImVec2(vs.x, 24));
@@ -1324,13 +1415,13 @@ void App::renderStatusBar()
     ImGui::PopStyleVar(3);
 
     // Python 状态：绿/红圆点 + 文字
-    drawDot(m_pythonOk ? g_colGreen : g_colRed);
-    if (m_pythonOk)
+    drawDot(pyOk ? g_colGreen : g_colRed);
+    if (pyOk)
         ImGui::TextColored(ImVec4(0.11f, 0.41f, 0.33f, 1), "%s", TR("status.python_ok"));
     else
         ImGui::TextColored(ImVec4(0.72f, 0.41f, 0.42f, 1), "%s", TR("status.python_no"));
     ImGui::SameLine();
-    ImGui::Text("%s %s", TR("status.project"), m_projectRoot.c_str());
+    ImGui::Text("%s %s", TR("status.project"), proot.c_str());
 
     ImGui::End();
 }
@@ -1338,6 +1429,19 @@ void App::renderStatusBar()
 // ==================== 环境面板（含 Git 下载） ====================
 void App::renderEnvPanel()
 {
+    // 快照跨线程共享状态，避免与后台线程（克隆/建环境/检测）竞争
+    bool pyOk = false, gitCloning = false;
+    std::string pyVer, proot, cli, srv;
+    {
+        std::lock_guard<std::mutex> lock(m_stateMutex);
+        pyOk = m_pythonOk;
+        pyVer = m_pythonVersion;
+        proot = m_projectRoot;
+        cli = m_cliRoot;
+        srv = m_serverRoot;
+        gitCloning = m_gitCloning;
+    }
+
     float availW = ImGui::GetContentRegionAvail().x;
     float gap = ImGui::GetStyle().ItemSpacing.x;
     float colW = (availW - gap) / 2.0f;
@@ -1350,12 +1454,12 @@ void App::renderEnvPanel()
         beginCard("card_py", TR("env.python"), colW);
         {
             // 状态行：绿/红圆点 + 状态文字 + 版本标签 + 重新检测
-            drawStatusDot(m_pythonOk);
-            ImGui::TextUnformatted(m_pythonOk ? TR("env.ready") : TR("env.nofound"));
-            if (m_pythonOk)
+            drawStatusDot(pyOk);
+            ImGui::TextUnformatted(pyOk ? TR("env.ready") : TR("env.nofound"));
+            if (pyOk)
             {
                 ImGui::SameLine();
-                drawTag((std::string(TR("env.version")) + " " + m_pythonVersion).c_str(),
+                drawTag((std::string(TR("env.version")) + " " + pyVer).c_str(),
                         ImVec4(0.89f, 0.94f, 1.00f, 1.0f), ImVec4(0.10f, 0.32f, 0.58f, 1.0f));
             }
             ImGui::SameLine();
@@ -1368,13 +1472,13 @@ void App::renderEnvPanel()
         {
             ImGui::TextColored(ImVec4(0.55f, 0.58f, 0.63f, 1.0f), "%s", TR("env.root"));
             ImGui::SameLine();
-            ImGui::TextWrapped("%s", m_projectRoot.c_str());
+            ImGui::TextWrapped("%s", proot.c_str());
             ImGui::TextColored(ImVec4(0.55f, 0.58f, 0.63f, 1.0f), "%s", TR("env.cli"));
             ImGui::SameLine();
-            ImGui::TextWrapped("%s", m_cliRoot.c_str());
+            ImGui::TextWrapped("%s", cli.c_str());
             ImGui::TextColored(ImVec4(0.55f, 0.58f, 0.63f, 1.0f), "%s", TR("env.srv"));
             ImGui::SameLine();
-            ImGui::TextWrapped("%s", m_serverRoot.c_str());
+            ImGui::TextWrapped("%s", srv.c_str());
         }
         endCard();
     }
@@ -1391,9 +1495,9 @@ void App::renderEnvPanel()
             ImGui::TextWrapped("%s", m_gitUrl);
             ImGui::Spacing();
             ImGui::TextColored(ImVec4(0.55f, 0.58f, 0.63f, 1.0f), "%s", TR("git.dir"));
-            ImGui::TextWrapped("%s", m_projectRoot.c_str());
+            ImGui::TextWrapped("%s", proot.c_str());
             ImGui::Spacing();
-            if (m_gitCloning)
+            if (gitCloning)
             {
                 ImGui::TextColored(ImVec4(1.0f, 0.65f, 0.0f, 1.0f), "%s", TR("git.cloning"));
             }
@@ -1401,7 +1505,7 @@ void App::renderEnvPanel()
             {
                 if (ImGui::Button(TR("git.clone"), ImVec2(-1, 36)))
                 {
-                    std::string u(m_gitUrl), d(m_projectRoot);
+                    std::string u(m_gitUrl), d(proot);
                     if (!u.empty() && !d.empty())
                         startGitClone(u, d);
                     else
@@ -1409,11 +1513,14 @@ void App::renderEnvPanel()
                 }
                 if (ImGui::Button(TR("git.check"), ImVec2(-1, 36)))
                 {
-                    if (_access(m_projectRoot.c_str(), 0) == 0)
+                    if (_access(proot.c_str(), 0) == 0)
                     {
                         addSuccess(std::string(TR("git.exists")));
-                        m_cliRoot = m_projectRoot + "/src/cli";
-                        m_serverRoot = m_projectRoot + "/src/server";
+                        {
+                            std::lock_guard<std::mutex> lock(m_stateMutex);
+                            m_cliRoot = proot + "/src/cli";
+                            m_serverRoot = proot + "/src/server";
+                        }
                         checkPython();
                     }
                     else
@@ -1475,11 +1582,18 @@ void App::renderServerPanel()
         float bw = (ImGui::GetContentRegionAvail().x - ImGui::GetStyle().ItemSpacing.x) / 2.0f;
         if (ImGui::Button(TR("srv.check"), ImVec2(bw, 36)))
         {
-            m_serverStatus = m_http.ping() ? 1 : 0;
-            if (m_serverStatus == 1)
-                addSuccess(TR("srv.online"));
-            else
-                addWarn(TR("srv.offline"));
+            // 异步检查：WinHTTP 超时最长 10s，同步调用会卡死 UI
+            if (m_pingThread.joinable())
+                m_pingThread.join(); // 上一次检查未结束时等待（最多数秒）
+            addInfo("[server] checking...");
+            m_pingThread = std::thread([this]()
+                                       {
+                bool ok = m_http.ping();
+                m_serverStatus = ok ? 1 : 0;
+                if (ok)
+                    addSuccess(TR("srv.online"));
+                else
+                    addWarn(TR("srv.offline")); });
         }
         ImGui::SameLine();
         if (ImGui::Button(TR("srv.api"), ImVec2(bw, 36)))

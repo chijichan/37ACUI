@@ -146,7 +146,8 @@ LangSys::LangSys()
 const char *LangSys::get(const std::string &key) const
 {
     auto it = m_data.find(key);
+    // 注意：不能返回 key.c_str()——key 是临时 std::string 的引用，返回即悬垂
     if (it == m_data.end())
-        return key.c_str();
+        return "";
     return (m_lang == Lang::Chinese) ? it->second.first : it->second.second;
 }

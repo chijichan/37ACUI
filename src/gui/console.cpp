@@ -33,8 +33,9 @@ char *ConsoleWidget::Strdup(const char *s)
 
 void ConsoleWidget::ClearLog()
 {
+    std::lock_guard<std::mutex> lock(m_mutex);
     m_fullText.clear();
-    m_fullText.shrink_to_fit(); // 归还内存（clear 只置 size=0，capacity 仍保留）
+    m_fullText.shrink_to_fit();   // 归还内存（clear 只置 size=0，capacity 仍保留）
     m_displayBuf.clear();
     m_displayBuf.shrink_to_fit(); // 显示缓冲同步释放
     m_displaySize = (size_t)-1;   // 强制下一帧重建显示缓冲
@@ -43,6 +44,7 @@ void ConsoleWidget::ClearLog()
 
 void ConsoleWidget::AddLog(const std::string &line)
 {
+    std::lock_guard<std::mutex> lock(m_mutex);
     m_fullText += line + "\n";
     if (m_fullText.size() > 500 * 1024)
     {
@@ -142,14 +144,21 @@ void ConsoleWidget::Draw(const char *title, ImVec2 size, bool hasInput,
 
     // 仅当内容变化或窗口宽度变化时重建显示缓冲（避免每帧重建，也避免每帧 strncpy）
     // 保留最新 256KB 原始文本，软换行后超宽行折行显示。
-    const bool contentChanged = (m_fullText.size() != m_displaySize);
+    // 锁内拷贝日志快照，避免与后台线程 AddLog 的并发写竞争
+    size_t fullSize = 0;
+    std::string src;
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        fullSize = m_fullText.size();
+        src = m_fullText;
+    }
+    const bool contentChanged = (fullSize != m_displaySize);
     const float availW = ImGui::GetContentRegionAvail().x;
     const float wrapW = availW - ImGui::GetStyle().FramePadding.x * 2.0f - ImGui::GetStyle().ScrollbarSize;
     if (contentChanged || wrapW != m_wrapWidth)
     {
-        m_displaySize = m_fullText.size();
+        m_displaySize = fullSize;
         m_wrapWidth = wrapW;
-        std::string src = m_fullText;
         if (src.size() > kMaxDisplayBytes)
             src.erase(0, src.size() - kMaxDisplayBytes); // 保留最新部分
         RebuildDisplay(src, wrapW);
@@ -160,7 +169,23 @@ void ConsoleWidget::Draw(const char *title, ImVec2 size, bool hasInput,
     if (autoScroll && contentChanged)
         ImGui::SetNextWindowScroll(ImVec2(0.0f, 1e9f));
 
-    ImGui::InputTextMultiline("##console_out", &m_displayBuf[0], (int)m_displayBuf.size() + 1,
+    // 正常路径直接使用 m_displayBuf（readonly 模式 ImGui 不修改缓冲，零拷贝）；
+    // 仅空串时用 fallback：&m_displayBuf[0] 对空 string 是 UB（MSVC 下虽可用但不可移植）
+    std::string fallback;
+    char *bufPtr = nullptr;
+    int bufSize = 0;
+    if (!m_displayBuf.empty())
+    {
+        bufPtr = &m_displayBuf[0];
+        bufSize = (int)m_displayBuf.size() + 1;
+    }
+    else
+    {
+        fallback = " ";
+        bufPtr = &fallback[0];
+        bufSize = 2;
+    }
+    ImGui::InputTextMultiline("##console_out", bufPtr, bufSize,
                               ImVec2(-1, -1), ImGuiInputTextFlags_ReadOnly);
 
     if (monoFont)
