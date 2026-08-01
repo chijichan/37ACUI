@@ -67,8 +67,8 @@ private:
 
     void saveConfig();
     void loadConfig();
-    void updateProjectPaths(); // 根据 programDir 计算 project/cli/server 路径
-    void refreshVenvState();   // 刷新 .venv 存在性缓存（避免每帧文件系统查询）
+    void updateProjectPaths();                            // 根据 programDir 计算 project/cli/server 路径
+    void refreshVenvState();                              // 刷新 .venv 存在性缓存（避免每帧文件系统查询）
     void setPythonState(bool ok, const std::string &ver); // 线程安全：更新 Python 检测结果
 
     HttpClient m_http;
@@ -81,9 +81,9 @@ private:
     std::thread m_procThread;
     std::thread m_pingThread; // 服务端状态检查线程（避免同步 HTTP 阻塞 UI）
     ConsoleWidget m_console;
-    std::mutex m_procStdinMutex;             // 保护 m_procStdinWrite：主线程（发送/停止）与 worker 线程（设置/清理）并发
+    std::mutex m_procStdinMutex; // 保护 m_procStdinWrite：主线程（发送/停止）与 worker 线程（设置/清理）并发
     void *m_procStdinWrite = nullptr;
-    std::mutex m_stateMutex;                 // 保护跨线程共享的状态成员：路径、Python 状态、venv/Git 状态
+    std::mutex m_stateMutex; // 保护跨线程共享的状态成员：路径、Python 状态、venv/Git 状态
     std::atomic<int> m_serverStatus{-1};
     std::atomic<unsigned long> m_procPid{0}; // 当前子进程 PID（0 = 无），用于精确终止进程
     std::atomic<bool> m_uiDirty{true};       // UI 需要重绘（后台线程日志/状态更新时置位）

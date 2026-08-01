@@ -35,7 +35,7 @@ void ConsoleWidget::ClearLog()
 {
     std::lock_guard<std::mutex> lock(m_mutex);
     m_fullText.clear();
-    m_fullText.shrink_to_fit();   // 归还内存（clear 只置 size=0，capacity 仍保留）
+    m_fullText.shrink_to_fit(); // 归还内存（clear 只置 size=0，capacity 仍保留）
     m_displayBuf.clear();
     m_displayBuf.shrink_to_fit(); // 显示缓冲同步释放
     m_displaySize = (size_t)-1;   // 强制下一帧重建显示缓冲
