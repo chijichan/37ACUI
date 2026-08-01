@@ -7,7 +7,6 @@
 #include <algorithm>
 #include <cstdio>
 #include <cstring>
-#include <vector>
 #include <chrono>
 #include <thread>
 #include <direct.h>
@@ -17,82 +16,6 @@
 #include <shlobj.h>
 
 static GLFWwindow *g_window = nullptr;
-
-// 从 .exe 嵌入资源加载图标并设置为 GLFW 窗口图标（任务栏 + 标题栏）
-static void setWindowIcon()
-{
-    // 加载图标资源（ID 101，与 app.rc 一致）
-    HICON hIcon = (HICON)LoadImage(
-        GetModuleHandle(nullptr),
-        MAKEINTRESOURCE(101),
-        IMAGE_ICON,
-        0, 0, // 0 = 使用系统默认尺寸
-        LR_DEFAULTSIZE | LR_SHARED);
-    if (!hIcon)
-        return;
-
-    // 获取图标实际尺寸
-    ICONINFO ii = {};
-    if (!GetIconInfo(hIcon, &ii))
-        return;
-
-    BITMAP bm = {};
-    GetObject(ii.hbmColor, sizeof(bm), &bm);
-    int w = bm.bmWidth;
-    int h = bm.bmHeight;
-
-    if (w <= 0 || h <= 0)
-    {
-        DeleteObject(ii.hbmColor);
-        DeleteObject(ii.hbmMask);
-        return;
-    }
-
-    // 分配 RGBA 像素缓冲区
-    std::vector<unsigned char> pixels(static_cast<size_t>(w) * h * 4);
-
-    // 用 BitBlt 从图标 DC 中提取 RGBA 数据
-    HDC hdcScreen = GetDC(nullptr);
-    HDC hdcMem = CreateCompatibleDC(hdcScreen);
-    HBITMAP hBmp = CreateCompatibleBitmap(hdcScreen, w, h);
-    HGDIOBJ oldBmp = SelectObject(hdcMem, hBmp);
-
-    // 将图标绘制到内存位图
-    DrawIconEx(hdcMem, 0, 0, hIcon, w, h, 0, nullptr, DI_NORMAL);
-
-    // 读取像素 (BGRA -> RGBA)
-    BITMAPINFO bi = {};
-    bi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
-    bi.bmiHeader.biWidth = w;
-    bi.bmiHeader.biHeight = -h; // 负值 = 自上而下
-    bi.bmiHeader.biPlanes = 1;
-    bi.bmiHeader.biBitCount = 32;
-    bi.bmiHeader.biCompression = BI_RGB;
-
-    GetDIBits(hdcMem, hBmp, 0, h, pixels.data(), &bi, DIB_RGB_COLORS);
-
-    // BGRA -> RGBA
-    for (int i = 0; i < w * h; i++)
-    {
-        unsigned char r = pixels[i * 4 + 2];
-        unsigned char b = pixels[i * 4 + 0];
-        pixels[i * 4 + 0] = r;
-        pixels[i * 4 + 2] = b;
-    }
-
-    // 设置 GLFW 窗口图标
-    GLFWimage img = {w, h, pixels.data()};
-    glfwSetWindowIcon(g_window, 1, &img);
-
-    // 清理
-    SelectObject(hdcMem, oldBmp);
-    DeleteObject(hBmp);
-    DeleteDC(hdcMem);
-    ReleaseDC(nullptr, hdcScreen);
-    DeleteObject(ii.hbmColor);
-    DeleteObject(ii.hbmMask);
-    // hIcon 是 LR_SHARED 加载的，不需要也不应手动销毁
-}
 
 static void glfw_error_callback(int error, const char *desc)
 {
@@ -116,6 +39,64 @@ static std::string stripAnsi(const std::string &s)
         out += s[i];
     }
     return out;
+}
+
+// 执行命令并捕获输出，不弹出控制台窗口。
+// GUI 子系统下 _popen/system 会通过 cmd.exe 分配新控制台导致闪窗，
+// 这里用 CreateProcess + CREATE_NO_WINDOW + 匿名管道（与 procThreadFunc 同模式）。
+static bool execCapture(const std::string &cmd, const std::string &cwd,
+                        std::string &output, int &exitCode)
+{
+    output.clear();
+    exitCode = -1;
+    HANDLE hOutR = nullptr, hOutW = nullptr;
+    SECURITY_ATTRIBUTES sa = {sizeof(sa), 0, TRUE};
+    if (!CreatePipe(&hOutR, &hOutW, &sa, 0))
+        return false;
+    SetHandleInformation(hOutR, HANDLE_FLAG_INHERIT, 0);
+
+    // stdin 也建管道（子进程读到 EOF），避免使用无效的父进程标准句柄
+    HANDLE hInR = nullptr, hInW = nullptr;
+    CreatePipe(&hInR, &hInW, &sa, 0);
+    SetHandleInformation(hInW, HANDLE_FLAG_INHERIT, 0);
+
+    STARTUPINFOA si = {sizeof(si)};
+    si.dwFlags = STARTF_USESTDHANDLES;
+    si.hStdOutput = hOutW;
+    si.hStdError = hOutW;
+    si.hStdInput = hInR;
+
+    // CreateProcess 需要可写缓冲区；统一经 cmd /c 执行（支持管道/内建命令语法）
+    std::string cmdLine = "cmd /c " + cmd;
+    PROCESS_INFORMATION pi = {};
+    BOOL ok = CreateProcessA(nullptr, &cmdLine[0], 0, 0, TRUE,
+                             CREATE_NO_WINDOW, 0,
+                             (cwd.empty() ? nullptr : cwd.c_str()), &si, &pi);
+    CloseHandle(hOutW);
+    CloseHandle(hInR);
+    CloseHandle(hInW);
+    if (!ok)
+    {
+        CloseHandle(hOutR);
+        output = "cannot start";
+        return false;
+    }
+    CloseHandle(pi.hThread);
+
+    char buf[4096];
+    DWORD read = 0;
+    while (ReadFile(hOutR, buf, sizeof(buf) - 1, &read, 0) && read > 0)
+    {
+        buf[read] = 0;
+        output += buf;
+    }
+    CloseHandle(hOutR);
+    WaitForSingleObject(pi.hProcess, INFINITE);
+    DWORD ec = 0;
+    GetExitCodeProcess(pi.hProcess, &ec);
+    CloseHandle(pi.hProcess);
+    exitCode = (int)ec;
+    return true;
 }
 
 // ==================== 视觉辅助 ====================
@@ -378,9 +359,6 @@ bool App::init(const char *title, int width, int height)
     glfwMakeContextCurrent(g_window);
     glfwSwapInterval(1);
 
-    // 设置窗口图标（任务栏 + 标题栏，从嵌入资源加载）
-    setWindowIcon();
-
     // 自动获取程序地址（exe 所在目录）
     {
         char exePath[MAX_PATH] = {};
@@ -605,23 +583,19 @@ bool App::runPython(const std::string &cmd, const std::string &cwd,
                 py = "python";
         }
     }
-    // 用 cmd /c + cd /d 在目标目录运行，确保 .venv 等相对路径落在正确位置
-    std::string fc = "cmd /c chcp 65001>nul & cd /d \"" + workDir + "\" && ";
+    // 用 CreateProcess（隐藏窗口）在目标目录运行，确保 .venv 等相对路径落在正确位置；
+    // 不能用 _popen/system：GUI 子系统下会闪出控制台窗口
+    std::string fc = "chcp 65001>nul & ";
     if (py != "python")
         fc += "\"" + py + "\"";
     else
         fc += "python";
     fc += " -u " + cmd + " 2>&1";
-    FILE *pipe = _popen(fc.c_str(), "r");
-    if (!pipe)
+    if (!execCapture(fc, workDir, output, exitCode))
     {
         output = "cannot start";
         return false;
     }
-    char buf[4096];
-    while (fgets(buf, sizeof(buf), pipe))
-        output += buf;
-    exitCode = _pclose(pipe);
     while (!output.empty() && (output.back() == '\n' || output.back() == '\r'))
         output.pop_back();
     return true;
@@ -654,7 +628,10 @@ void App::venvThreadFunc(bool recreate)
     if (recreate && _access(venvDir.c_str(), 0) == 0)
     {
         addWarn(std::string(TR("env.venv_del_ok")));
-        system(("cmd /c rmdir /s /q \"" + venvDir + "\"").c_str());
+        // 隐藏窗口删除，避免 GUI 下闪出控制台窗口
+        std::string o2;
+        int c2 = 0;
+        execCapture("rmdir /s /q \"" + venvDir + "\"", "", o2, c2);
     }
     else if (!recreate && _access(venvDir.c_str(), 0) == 0)
     {
@@ -713,22 +690,19 @@ void App::initProjectThreadFunc(const std::string &url)
     // ===== 1. 克隆 37AC（目录不存在时） =====
     if (_access(proot.c_str(), 0) != 0)
     {
-        FILE *t = _popen("git --version 2>&1", "r");
-        if (!t)
+        std::string gv;
+        int gvc = 0;
+        execCapture("git --version 2>&1", "", gv, gvc); // 隐藏窗口，避免闪控制台
+        if (gvc != 0)
         {
             addError(std::string(TR("log.git")) + TR("git.not_found"));
             m_procRunning = false;
             return;
         }
-        char b[256];
-        if (fgets(b, sizeof(b), t))
-        {
-            std::string v(b);
-            while (!v.empty() && (v.back() == '\n' || v.back() == '\r'))
-                v.pop_back();
-            addInfo(std::string(TR("log.git")) + v);
-        }
-        _pclose(t);
+        while (!gv.empty() && (gv.back() == '\n' || gv.back() == '\r'))
+            gv.pop_back();
+        if (!gv.empty())
+            addInfo(std::string(TR("log.git")) + gv);
 
         // 确保父目录（project/）存在，git clone 才能创建目标目录
         std::string parent = proot;
@@ -751,23 +725,31 @@ void App::initProjectThreadFunc(const std::string &url)
 
         addInfo(std::string(TR("log.init")) + TR("git.clone") + ": " + url);
         std::string cmd = "git clone --depth 1 \"" + url + "\" \"" + proot + "\" 2>&1";
-        FILE *pipe = _popen(cmd.c_str(), "r");
-        if (!pipe)
+        std::string gco;
+        int ec = 0;
+        if (!execCapture(cmd, "", gco, ec)) // 隐藏窗口，避免闪控制台
         {
             addError(std::string(TR("log.git")) + "cannot start");
             m_procRunning = false;
             return;
         }
-        char buf[4096];
-        while (fgets(buf, sizeof(buf), pipe))
+        // 按行输出克隆日志
         {
-            std::string l(buf);
-            while (!l.empty() && (l.back() == '\n' || l.back() == '\r'))
-                l.pop_back();
-            if (!l.empty())
-                addInfo("  " + stripAnsi(l));
+            std::string l;
+            for (char ch : gco)
+            {
+                if (ch == '\n')
+                {
+                    while (!l.empty() && l.back() == '\r')
+                        l.pop_back();
+                    if (!l.empty())
+                        addInfo("  " + stripAnsi(l));
+                    l.clear();
+                }
+                else
+                    l += ch;
+            }
         }
-        int ec = _pclose(pipe);
         if (ec != 0)
         {
             addError(std::string(TR("log.init")) + TR("env.init_clone_fail") + std::to_string(ec));
@@ -1014,16 +996,24 @@ void App::startGitClone(const std::string &url, const std::string &dir)
         m_procThread.join();
     m_procThread = std::thread([this, url, dir]()
                                {
-        FILE *t = _popen("git --version 2>&1","r");
-        if (t) { char b[256]; if(fgets(b,sizeof(b),t)){std::string v(b); while(!v.empty()&&(v.back()=='\n'||v.back()=='\r'))v.pop_back(); addInfo(std::string("[Git] ")+v);} _pclose(t); }
-        else { addError("[Git] git not found"); { std::lock_guard<std::mutex> lock(m_stateMutex); m_gitCloning=false; } m_procRunning=false; return; }
-        if (_access(dir.c_str(),0)==0) { addWarn("[Git] removing old..."); system(("cmd /c rmdir /s /q \""+dir+"\"").c_str()); }
+        std::string gv; int gvc = 0;
+        execCapture("git --version 2>&1", "", gv, gvc); // 隐藏窗口，避免闪控制台
+        if (gvc != 0) { addError("[Git] git not found"); { std::lock_guard<std::mutex> lock(m_stateMutex); m_gitCloning=false; } m_procRunning=false; return; }
+        while (!gv.empty() && (gv.back()=='\n'||gv.back()=='\r')) gv.pop_back();
+        if (!gv.empty()) addInfo(std::string("[Git] ")+gv);
+        if (_access(dir.c_str(),0)==0) { addWarn("[Git] removing old..."); std::string oo; int cc=0; execCapture("rmdir /s /q \""+dir+"\"", "", oo, cc); }
         std::string cmd = "git clone --depth 1 \""+url+"\" \""+dir+"\" 2>&1";
-        FILE *pipe = _popen(cmd.c_str(),"r");
-        if(!pipe){addError("[Git] cannot start"); { std::lock_guard<std::mutex> lock(m_stateMutex); m_gitCloning=false; } m_procRunning=false; return;}
-        char buf[4096];
-        while(fgets(buf,sizeof(buf),pipe)){std::string l(buf); while(!l.empty()&&(l.back()=='\n'||l.back()=='\r'))l.pop_back(); if(!l.empty())addInfo("  "+stripAnsi(l));}
-        int ec=_pclose(pipe);
+        std::string out; int ec = 0;
+        if (!execCapture(cmd, "", out, ec)) { addError("[Git] cannot start"); { std::lock_guard<std::mutex> lock(m_stateMutex); m_gitCloning=false; } m_procRunning=false; return; }
+        // 按行输出克隆日志
+        {
+            std::string l;
+            for (char ch : out)
+            {
+                if (ch == '\n') { while (!l.empty() && l.back()=='\r') l.pop_back(); if (!l.empty()) addInfo("  "+stripAnsi(l)); l.clear(); }
+                else l += ch;
+            }
+        }
         {
             std::lock_guard<std::mutex> lock(m_stateMutex);
             if(ec==0){ m_projectRoot=dir; m_cliRoot=dir+"/src/cli"; m_serverRoot=dir+"/src/server"; }
