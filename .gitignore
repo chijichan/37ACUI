@@ -4,6 +4,7 @@
 build
 build/*
 ./build/*
+build-*/
 out/
 *.sln
 *.vcxproj

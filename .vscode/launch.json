@@ -26,16 +26,40 @@
             "preLaunchTask": "CMake: 构建 (Release)"
         },
         {
-            "name": "(Windows) 启动 ACUI (Debug)",
+            "name": "(CMake) 构建并调试 (arm64)",
             "type": "cppvsdbg",
             "request": "launch",
-            "program": "${workspaceFolder}/build/Debug/ACUI.exe",
+            "program": "${workspaceFolder}/build-arm64/Release/ACUI.exe",
             "args": [],
             "stopAtEntry": false,
             "cwd": "${workspaceFolder}",
             "environment": [],
             "console": "integratedTerminal",
-            "preLaunchTask": "CMake: 构建 (Debug)"
+            "preLaunchTask": "CMake: 构建 (Release arm64)"
+        },
+        {
+            "name": "(Windows) 启动 ACUI (arm64)",
+            "type": "cppvsdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/build-arm64/Release/ACUI.exe",
+            "args": [],
+            "stopAtEntry": false,
+            "cwd": "${workspaceFolder}",
+            "environment": [],
+            "console": "integratedTerminal",
+            "preLaunchTask": "CMake: 构建 (Release arm64)"
+        },
+        {
+            "name": "(Windows) 启动 ACUI (Debug arm64)",
+            "type": "cppvsdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/build-arm64/Debug/ACUI.exe",
+            "args": [],
+            "stopAtEntry": false,
+            "cwd": "${workspaceFolder}",
+            "environment": [],
+            "console": "integratedTerminal",
+            "preLaunchTask": "CMake: 构建 (Debug arm64)"
         }
     ]
 }

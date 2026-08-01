@@ -14,11 +14,12 @@
                 "Visual Studio 17 2022",
                 "-A",
                 "x64",
-                "-DCMAKE_TOOLCHAIN_FILE=E:/apps/vcpkg/scripts/buildsystems/vcpkg.cmake"
+                "-DCMAKE_TOOLCHAIN_FILE=E:/apps/vcpkg/scripts/buildsystems/vcpkg.cmake",
+                "-DVCPKG_TARGET_TRIPLET=x64-windows"
             ],
             "group": "build",
             "problemMatcher": [],
-            "detail": "CMake 配置 - Release"
+            "detail": "CMake 配置 - Release (x64)"
         },
         {
             "label": "CMake: 配置 (Debug)",
@@ -34,11 +35,53 @@
                 "-A",
                 "x64",
                 "-DCMAKE_BUILD_TYPE=Debug",
-                "-DCMAKE_TOOLCHAIN_FILE=E:/apps/vcpkg/scripts/buildsystems/vcpkg.cmake"
+                "-DCMAKE_TOOLCHAIN_FILE=E:/apps/vcpkg/scripts/buildsystems/vcpkg.cmake",
+                "-DVCPKG_TARGET_TRIPLET=x64-windows"
             ],
             "group": "build",
             "problemMatcher": [],
-            "detail": "CMake 配置 - Debug"
+            "detail": "CMake 配置 - Debug (x64)"
+        },
+        {
+            "label": "CMake: 配置 (Release arm64)",
+            "type": "shell",
+            "command": "E:/apps/VS2022/app/Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/bin/cmake.exe",
+            "args": [
+                "-S",
+                "${workspaceFolder}",
+                "-B",
+                "${workspaceFolder}/build-arm64",
+                "-G",
+                "Visual Studio 17 2022",
+                "-A",
+                "ARM64",
+                "-DCMAKE_TOOLCHAIN_FILE=E:/apps/vcpkg/scripts/buildsystems/vcpkg.cmake",
+                "-DVCPKG_TARGET_TRIPLET=arm64-windows"
+            ],
+            "group": "build",
+            "problemMatcher": [],
+            "detail": "CMake 配置 - Release (arm64)"
+        },
+        {
+            "label": "CMake: 配置 (Debug arm64)",
+            "type": "shell",
+            "command": "E:/apps/VS2022/app/Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/bin/cmake.exe",
+            "args": [
+                "-S",
+                "${workspaceFolder}",
+                "-B",
+                "${workspaceFolder}/build-arm64",
+                "-G",
+                "Visual Studio 17 2022",
+                "-A",
+                "ARM64",
+                "-DCMAKE_BUILD_TYPE=Debug",
+                "-DCMAKE_TOOLCHAIN_FILE=E:/apps/vcpkg/scripts/buildsystems/vcpkg.cmake",
+                "-DVCPKG_TARGET_TRIPLET=arm64-windows"
+            ],
+            "group": "build",
+            "problemMatcher": [],
+            "detail": "CMake 配置 - Debug (arm64)"
         },
         {
             "label": "CMake: 构建 (Release)",
@@ -60,7 +103,7 @@
             "dependsOn": [
                 "CMake: 配置 (Release)"
             ],
-            "detail": "CMake 构建 - Release"
+            "detail": "CMake 构建 - Release (x64)"
         },
         {
             "label": "CMake: 构建 (Debug)",
@@ -79,7 +122,45 @@
             "dependsOn": [
                 "CMake: 配置 (Debug)"
             ],
-            "detail": "CMake 构建 - Debug"
+            "detail": "CMake 构建 - Debug (x64)"
+        },
+        {
+            "label": "CMake: 构建 (Release arm64)",
+            "type": "shell",
+            "command": "E:/apps/VS2022/app/Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/bin/cmake.exe",
+            "args": [
+                "--build",
+                "${workspaceFolder}/build-arm64",
+                "--config",
+                "Release"
+            ],
+            "group": "build",
+            "problemMatcher": [
+                "$msCompile"
+            ],
+            "dependsOn": [
+                "CMake: 配置 (Release arm64)"
+            ],
+            "detail": "CMake 构建 - Release (arm64)"
+        },
+        {
+            "label": "CMake: 构建 (Debug arm64)",
+            "type": "shell",
+            "command": "E:/apps/VS2022/app/Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/bin/cmake.exe",
+            "args": [
+                "--build",
+                "${workspaceFolder}/build-arm64",
+                "--config",
+                "Debug"
+            ],
+            "group": "build",
+            "problemMatcher": [
+                "$msCompile"
+            ],
+            "dependsOn": [
+                "CMake: 配置 (Debug arm64)"
+            ],
+            "detail": "CMake 构建 - Debug (arm64)"
         },
         {
             "label": "CMake: 全部清理",

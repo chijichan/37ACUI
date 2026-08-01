@@ -15,6 +15,21 @@
             "cStandard": "c17",
             "cppStandard": "c++17",
             "intelliSenseMode": "windows-msvc-x64"
+        },
+        {
+            "name": "Win32-arm64",
+            "includePath": [
+                "${workspaceFolder}/src",
+                "${workspaceFolder}/third_party/imgui",
+                "${workspaceFolder}/third_party/imgui/backends",
+                "${workspaceFolder}/third_party/implot",
+                "E:/apps/vcpkg/installed/arm64-windows/include"
+            ],
+            "defines": [],
+            "compilerPath": "E:/apps/VS2022/app/VC/Tools/MSVC/14.44.35207/bin/Hostx64/arm64/cl.exe",
+            "cStandard": "c17",
+            "cppStandard": "c++17",
+            "intelliSenseMode": "windows-msvc-arm64"
         }
     ]
 }
