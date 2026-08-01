@@ -755,9 +755,14 @@ void App::procThreadFunc(const std::string &name, const std::string &cmd,
     {
         addError(std::string("[error] ") + name + " code=" + std::to_string(GetLastError()));
         CloseHandle(hOutR);
+        // 失败路径：hInW 从未传给子进程，必须关闭，避免句柄泄漏
+        if (m_procStdinWrite)
+        {
+            CloseHandle((HANDLE)m_procStdinWrite);
+            m_procStdinWrite = nullptr;
+        }
         m_procRunning = false;
         m_procPid = 0;
-        m_procStdinWrite = nullptr;
         return;
     }
     m_procPid = pi.dwProcessId; // 记录 PID，供 stopProcess 精确终止
@@ -815,9 +820,14 @@ void App::procThreadFunc(const std::string &name, const std::string &cmd,
         addSuccess(std::string("[done] ") + name + " exit=" + std::to_string(ec));
     else
         addError(std::string("[done] ") + name + " exit=" + std::to_string(ec));
+    // 进程自然结束时关闭 stdin 写端句柄（若未被 stopProcess 提前关闭）
+    if (m_procStdinWrite)
+    {
+        CloseHandle((HANDLE)m_procStdinWrite);
+        m_procStdinWrite = nullptr;
+    }
     m_procRunning = false;
     m_procPid = 0;
-    m_procStdinWrite = nullptr;
 }
 
 void App::startProcess(const std::string &name, const std::string &cmd,
