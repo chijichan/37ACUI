@@ -115,7 +115,15 @@ target_compile_options(${PROJECT_NAME} PRIVATE
     /W4             # 高警告级别
     /wd4100         # 忽略未引用形参警告
     /wd4127         # 忽略条件表达式常量警告 (ImGui)
+    $<$<CONFIG:Release>:/Zi>    # Release 也生成 PDB 调试符号，崩溃时可定位源码
 )
+
+# Release 链接时生成 PDB（对应 /Zi 编译选项）
+if(WIN32)
+    target_link_options(${PROJECT_NAME} PRIVATE
+        $<$<CONFIG:Release>:/DEBUG:FULL>
+    )
+endif()
 
 target_compile_definitions(${PROJECT_NAME} PRIVATE
     _CRT_SECURE_NO_WARNINGS   # 使用标准 C 函数 (fopen/sscanf 等)

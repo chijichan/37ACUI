@@ -1012,7 +1012,8 @@ void App::renderSideNav()
 {
     // 计算导航内容总高度，实现垂直居中
     float contentH = ImGui::GetWindowHeight();
-    float logoH = (m_bigFont ? m_bigFont->FontSize : ImGui::GetTextLineHeightWithSpacing()) + 16.0f;
+    // ImGui 1.92+: ImFont::FontSize 已移除，LegacySize = AddFontFromFileTTF 传入的加载大小
+    float logoH = (m_bigFont ? m_bigFont->LegacySize : ImGui::GetTextLineHeightWithSpacing()) + 16.0f;
     float sepH = 8;
     float navH = 36.0f * 3 + ImGui::GetStyle().ItemSpacing.y * 3; // 3 个按钮
     float bottomSpacing = 20;

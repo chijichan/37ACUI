@@ -54,9 +54,9 @@ void ConsoleWidget::RebuildDisplay(const std::string &text, float wrapWidth)
     m_displayBuf.clear();
     m_displayBuf.reserve(text.size() + text.size() / 80 + 64);
 
-    const ImFont *cfont = ImGui::GetFont();
-    ImFont *font = const_cast<ImFont *>(cfont); // GetCharAdvance 非 const 成员
-    const float scale = ImGui::GetFontSize() / font->FontSize;
+    // ImGui 1.92+: 字符宽度查询移到 ImFontBaked（GetCharAdvance 返回实际像素宽度，已含缩放）
+    ImFont *font = const_cast<ImFont *>(ImGui::GetFont());
+    ImFontBaked *baked = font->GetFontBaked(ImGui::GetFontSize());
     float x = 0.0f;
     const char *p = text.c_str();
     const char *end = p + text.size();
@@ -98,7 +98,7 @@ void ConsoleWidget::RebuildDisplay(const std::string &text, float wrapWidth)
             continue;
         }
 
-        const float w = font->GetCharAdvance((ImWchar)c) * scale;
+        const float w = baked->GetCharAdvance((ImWchar)c);
         if (x > 0.0f && x + w > wrapWidth)
         {
             m_displayBuf += '\n'; // 软换行：仅显示层插入，不改动原始日志

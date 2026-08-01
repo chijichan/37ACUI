@@ -112,12 +112,14 @@ build.bat clean
 
 | 库 | 版本 | 用途 | 来源 |
 |---|---|---|---|
-| Dear ImGui | 1.91.6 | 即时模式 GUI | `third_party/imgui/` (内置源码) |
-| ImPlot | 0.16 | 图表绘制 | `third_party/implot/` (内置源码) |
+| Dear ImGui | 1.92.9b | 即时模式 GUI | `third_party/imgui/` (内置源码) |
+| ImPlot | 1.1 WIP | 图表绘制 | `third_party/implot/` (内置源码) |
 | GLFW | 3.4 | 窗口/OpenGL 上下文 | vcpkg (`glfw3:x64-windows`) |
 | OpenGL | 3.3 Core | 图形渲染 | 系统 (GLEW 由 ImGui GLFW/OpenGL3 后端内部加载) |
 | WinHTTP | Windows SDK 内置 | HTTP 请求 (`winhttp.lib`) | 系统 |
 | MSVC C++ 运行时 | VS2022 (v143) | C++17 标准库 | Visual Studio 2022 |
+
+> **版本核对**：ImGui 1.92.9b 与 ImPlot 1.1 WIP 均以源码内置，版本定义见 `third_party/imgui/imgui.h`（`IMGUI_VERSION`）与 `third_party/implot/implot.h`（`IMPLOT_VERSION`）；GLFW 3.4 由 vcpkg 安装（`vcpkg list` 可查）。
 
 ## 许可证
 
