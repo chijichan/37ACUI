@@ -278,7 +278,8 @@ static bool navExitItem(const char *label)
 
 // ==================== 统一配置 ====================
 // 所有持久化设置都写入 acui_settings.ini (acui.ini 由 ImGui 自动管理窗口布局)
-static const char *CFG_FILE = "acui_settings.ini";
+// 两个文件都写入 exe 所在目录，而非当前工作目录
+static const char *CFG_FILE_NAME = "acui_settings.ini";
 
 // 根据程序地址计算项目路径：m_projectRoot = programDir + project/37AC
 void App::updateProjectPaths()
@@ -334,7 +335,8 @@ void App::saveConfig()
         glfwGetWindowPos(g_window, &m_winX, &m_winY);
         glfwGetWindowSize(g_window, &m_winW, &m_winH);
     }
-    FILE *f = fopen(CFG_FILE, "w");
+    std::string cfgPath = m_programDir + "/" + CFG_FILE_NAME;
+    FILE *f = fopen(cfgPath.c_str(), "w");
     if (!f)
         return;
     fprintf(f, "win_x=%d\n", m_winX);
@@ -351,7 +353,8 @@ void App::saveConfig()
 
 void App::loadConfig()
 {
-    FILE *f = fopen(CFG_FILE, "r");
+    std::string cfgPath = m_programDir + "/" + CFG_FILE_NAME;
+    FILE *f = fopen(cfgPath.c_str(), "r");
     if (!f)
         return;
     char line[512];
@@ -560,7 +563,10 @@ bool App::init(const char *title, int width, int height)
     }
 
     // 手动加载上次保存的窗口布局（IniFilename=NULL 时 NewFrame 不会自动加载）
-    ImGui::LoadIniSettingsFromDisk("acui.ini");
+    {
+        std::string iniPath = m_programDir + "/acui.ini";
+        ImGui::LoadIniSettingsFromDisk(iniPath.c_str());
+    }
 
     ImGui_ImplGlfw_InitForOpenGL(g_window, true);
     ImGui_ImplOpenGL3_Init("#version 330");
@@ -1150,7 +1156,10 @@ void App::run()
 
     // 窗口关闭前保存配置（此时 g_window 仍然有效）
     // 先显式保存 ImGui 窗口布局（NoAutoSave 下自动保存已禁用）
-    ImGui::SaveIniSettingsToDisk("acui.ini");
+    {
+        std::string iniPath = m_programDir + "/acui.ini";
+        ImGui::SaveIniSettingsToDisk(iniPath.c_str());
+    }
 
     stopProcess();
     if (m_procThread.joinable())

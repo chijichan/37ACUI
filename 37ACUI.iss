@@ -74,8 +74,6 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 ; ---- 主程序与运行时依赖 ----
 Source: "{#BuildDir}\{#BuildConfig}\ACUI.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#BuildDir}\{#BuildConfig}\glfw3.dll"; DestDir: "{app}"; Flags: ignoreversion
-; ---- 默认 ImGui 窗口布局（用户设置 acui_settings.ini 由程序运行时生成，不打包）----
-Source: "acui.ini"; DestDir: "{app}"; Flags: ignoreversion
 ; ---- 文档 ----
 Source: "LICENSE"; DestDir: "{app}"; Flags: ignoreversion
 Source: "README.md"; DestDir: "{app}"; Flags: ignoreversion isreadme
