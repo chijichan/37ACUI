@@ -118,18 +118,22 @@ target_include_directories(${PROJECT_NAME} PRIVATE
     ${OPENGL_INCLUDE_DIRS}
 )
 
+# Release 是否生成 PDB 调试符号（默认开启，崩溃时可定位源码；
+# 关闭后可减小体积，用 -DACUI_RELEASE_PDB=OFF 配置）
+option(ACUI_RELEASE_PDB "Release 配置生成 PDB 调试符号" OFF)
+
 target_compile_options(${PROJECT_NAME} PRIVATE
     /utf-8          # UTF-8 源码编码
     /W4             # 高警告级别
     /wd4100         # 忽略未引用形参警告
     /wd4127         # 忽略条件表达式常量警告 (ImGui)
-    $<$<CONFIG:Release>:/Zi>    # Release 也生成 PDB 调试符号，崩溃时可定位源码
+    $<$<AND:$<CONFIG:Release>,$<BOOL:${ACUI_RELEASE_PDB}>>:/Zi>    # Release 生成 PDB
 )
 
 # Release 链接时生成 PDB（对应 /Zi 编译选项）
 if(WIN32)
     target_link_options(${PROJECT_NAME} PRIVATE
-        $<$<CONFIG:Release>:/DEBUG:FULL>
+        $<$<AND:$<CONFIG:Release>,$<BOOL:${ACUI_RELEASE_PDB}>>:/DEBUG:FULL>
     )
 endif()
 
