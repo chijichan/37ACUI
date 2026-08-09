@@ -174,6 +174,33 @@ static bool execCapture(const std::string &cmd, const std::string &cwd,
     return true;
 }
 
+// 在资源管理器中打开文件夹（或按默认程序打开文件）
+static void openPath(const std::string &p)
+{
+    ShellExecuteA(0, "open", p.c_str(), 0, 0, SW_SHOW);
+}
+
+// 用记事本打开文本文件；文件不存在时记事本会新建（便于创建 .env）
+static void openTextFile(const std::string &p)
+{
+    ShellExecuteA(0, "open", "notepad.exe", p.c_str(), 0, SW_SHOW);
+}
+
+// 字节数格式化为可读字符串（B/KB/MB/GB/TB）
+static std::string fmtBytes(double b)
+{
+    const char *units[] = {"B", "KB", "MB", "GB", "TB"};
+    int i = 0;
+    while (b >= 1024.0 && i < 4)
+    {
+        b /= 1024.0;
+        i++;
+    }
+    char buf[32];
+    snprintf(buf, sizeof(buf), "%.1f %s", b, units[i]);
+    return std::string(buf);
+}
+
 // ==================== 视觉辅助 ====================
 // 状态色（绿/红/灰）
 static const ImU32 g_colGreen = IM_COL32(34, 197, 94, 255);
@@ -903,7 +930,25 @@ void App::initProjectThreadFunc(const std::string &url)
     else
         addSuccess(std::string(TR("log.init")) + TR("env.init_srv_ok"));
 
-    // ===== 5. 验证环境 =====
+    // ===== 5. 生成环境变量文件 (.env) =====
+    // 37AC 的 .env.example 位于 src/cli、src/server、src/www。
+    // 克隆后各组件 .env 不存在，服务/CLI/前端无法直接运行，此处自动从示例复制生成。
+    addInfo(std::string(TR("log.init")) + TR("env.init_env") + "...");
+    {
+        std::vector<std::string> comps = {m_cliRoot, m_serverRoot, proot + "/src/www"};
+        for (auto &d : comps)
+        {
+            std::string ex = d + "/.env.example";
+            std::string env = d + "/.env";
+            if (_access(ex.c_str(), 0) == 0 && _access(env.c_str(), 0) != 0)
+            {
+                if (CopyFileA(ex.c_str(), env.c_str(), FALSE))
+                    addSuccess(std::string(TR("log.init")) + "[env] " + d + " -> .env");
+            }
+        }
+    }
+
+    // ===== 6. 验证环境 =====
     addInfo(std::string(TR("log.init")) + TR("env.verify") + "...");
     o.clear();
     c = 0;
@@ -1344,17 +1389,97 @@ void App::renderLaunchPanel()
 // ==================== 工具页 ====================
 void App::renderToolsPanel()
 {
-    beginCard("card_tools", TR("menu.tools"));
+    // 快照项目路径
+    std::string proot, cli, srv;
     {
-        if (ImGui::Checkbox("ImGui Demo", &m_showDemo))
-        {
-            // 切换 demo 窗口
-        }
-        ImGui::Spacing();
-        if (ImGui::Button(TR("menu.refresh"), ImVec2(180, 36)))
-            checkPython();
+        std::lock_guard<std::mutex> lock(m_stateMutex);
+        proot = m_projectRoot;
+        cli = m_cliRoot;
+        srv = m_serverRoot;
     }
-    endCard();
+
+    // 可滚动容器，与启动页一致
+    if (ImGui::BeginChild("ToolsScroll", ImVec2(0, 0), false,
+                          ImGuiWindowFlags_HorizontalScrollbar | ImGuiWindowFlags_NoBackground))
+    {
+        float availW = ImGui::GetContentRegionAvail().x;
+        float gap = ImGui::GetStyle().ItemSpacing.x;
+        float colW = (availW - gap) / 2.0f;
+        if (colW < 240.0f)
+            colW = availW; // 窗口过窄时退化为单列
+
+        // 左列：系统信息 + 通用
+        ImGui::BeginGroup();
+        {
+            beginCard("card_sys", TR("tools.system"), colW);
+            {
+                // CPU 核心数
+                SYSTEM_INFO si;
+                GetSystemInfo(&si);
+                ImGui::TextColored(ImVec4(0.55f, 0.58f, 0.63f, 1.0f), "%s", TR("tools.cpu"));
+                ImGui::SameLine();
+                ImGui::Text("%u", si.dwNumberOfProcessors);
+
+                // 内存使用
+                MEMORYSTATUSEX ms = {};
+                ms.dwLength = sizeof(ms);
+                double memUsed = 0.0, memTotal = 0.0, memPct = 0.0;
+                if (GlobalMemoryStatusEx(&ms))
+                {
+                    memUsed = (double)(ms.ullTotalPhys - ms.ullAvailPhys);
+                    memTotal = (double)ms.ullTotalPhys;
+                    memPct = memTotal > 0.0 ? 100.0 * memUsed / memTotal : 0.0;
+                }
+                ImGui::TextColored(ImVec4(0.55f, 0.58f, 0.63f, 1.0f), "%s", TR("tools.mem"));
+                ImGui::SameLine();
+                ImGui::Text("%s / %s (%.0f%%)", fmtBytes(memUsed).c_str(),
+                            fmtBytes(memTotal).c_str(), memPct);
+
+                // 磁盘剩余（项目所在盘）
+                char root[4] = "C:\\";
+                if (proot.size() >= 2 && proot[1] == ':')
+                    root[0] = proot[0];
+                ULARGE_INTEGER freeB = {}, totalB = {};
+                if (GetDiskFreeSpaceExA(root, &freeB, &totalB, nullptr))
+                {
+                    ImGui::TextColored(ImVec4(0.55f, 0.58f, 0.63f, 1.0f), "%s (%c:)", TR("tools.disk"), root[0]);
+                    ImGui::SameLine();
+                    ImGui::Text("%s / %s", fmtBytes((double)freeB.QuadPart).c_str(),
+                                fmtBytes((double)totalB.QuadPart).c_str());
+                }
+
+                ImGui::Spacing();
+                if (ImGui::Checkbox("ImGui Demo", &m_showDemo))
+                {
+                    // 切换 demo 窗口
+                }
+                ImGui::SameLine();
+                if (ImGui::Button(TR("menu.refresh"), ImVec2(0, 0)))
+                    checkPython();
+            }
+            endCard();
+        }
+        ImGui::EndGroup();
+
+        ImGui::SameLine();
+
+        // 右列：文件夹快捷方式
+        ImGui::BeginGroup();
+        {
+            beginCard("card_folders", TR("tools.folders"), colW);
+            {
+                if (ImGui::Button(TR("tools.open_project"), ImVec2(-1, 36)))
+                    openPath(proot);
+                if (ImGui::Button(TR("tools.open_cli"), ImVec2(-1, 36)))
+                    openPath(cli);
+                if (ImGui::Button(TR("tools.open_srv"), ImVec2(-1, 36)))
+                    openPath(srv);
+            }
+            endCard();
+        }
+        ImGui::EndGroup();
+    }
+    ImGui::EndChild();
 }
 
 // ==================== 设置页（语言 + Git 配置） ====================
@@ -1636,6 +1761,78 @@ void App::renderEnvPanel()
             ImGui::TextColored(ImVec4(0.55f, 0.58f, 0.63f, 1.0f), "%s", TR("env.srv"));
             ImGui::SameLine();
             ImGui::TextWrapped("%s", srv.c_str());
+        }
+        endCard();
+
+        // 环境变量卡片（位于快捷操作左边）：cp .env.example .env 生成环境变量
+        // 37AC 的 .env.example 分别位于 src/cli、src/server、src/www 子目录
+        beginCard("card_env", TR("env.title"), colW);
+        {
+            struct EnvComp
+            {
+                const char *label;
+                std::string dir;
+            };
+            EnvComp comps[] = {
+                {TR("env.comp_cli"), cli},
+                {TR("env.comp_srv"), srv},
+                {TR("env.comp_web"), proot + "/src/www"},
+            };
+
+            for (auto &c : comps)
+            {
+                std::string envFile = c.dir + "/.env";
+                std::string envEx = c.dir + "/.env.example";
+                bool hasEnv = (_access(envFile.c_str(), 0) == 0);
+                bool hasExample = (_access(envEx.c_str(), 0) == 0);
+
+                ImGui::PushID(c.label);
+                // 组件名 + 状态圆点 + .env.example 是否存在
+                ImGui::TextColored(ImVec4(0.30f, 0.45f, 0.60f, 1.0f), "%s", c.label);
+                ImGui::SameLine();
+                drawStatusDot(hasEnv);
+                ImGui::TextUnformatted(hasEnv ? TR("env.env_exists") : TR("env.env_missing"));
+                ImGui::SameLine();
+                drawDot(hasExample ? g_colGreen : g_colRed);
+                ImGui::SameLine();
+                ImGui::TextDisabled("%s", hasExample ? ".env.example" : TR("env.example_missing"));
+
+                // 核心操作：从该组件目录的 .env.example 复制生成 .env（覆盖式）
+                if (ImGui::Button(TR("env.gen"), ImVec2(-1, 30)))
+                {
+                    if (hasExample)
+                    {
+                        if (CopyFileA(envEx.c_str(), envFile.c_str(), FALSE))
+                            addSuccess(std::string(c.label) + " " + TR("env.env_ok"));
+                        else
+                            addError(std::string(c.label) + " " + TR("env.env_fail"));
+                    }
+                    else
+                        addError(std::string(c.label) + " " + TR("env.env_fail"));
+                }
+
+                // 打开 .env / 打开示例（记事本，不存在则新建）
+                float bw2 = (ImGui::GetContentRegionAvail().x - gap) / 2.0f;
+                if (ImGui::Button(TR("env.open_env"), ImVec2(bw2, 28)))
+                    openTextFile(envFile);
+                ImGui::SameLine();
+                if (ImGui::Button(TR("env.open_example"), ImVec2(bw2, 28)))
+                    openTextFile(envEx);
+
+                // 删除 .env（仅存在时）
+                if (hasEnv)
+                {
+                    if (ImGui::Button(TR("env.del_env"), ImVec2(-1, 28)))
+                    {
+                        if (DeleteFileA(envFile.c_str()))
+                            addSuccess(std::string(c.label) + " " + TR("env.env_del"));
+                        else
+                            addError(std::string(c.label) + " " + TR("env.env_del_fail"));
+                    }
+                }
+                ImGui::PopID();
+                ImGui::Spacing();
+            }
         }
         endCard();
     }
