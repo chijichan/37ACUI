@@ -1227,7 +1227,7 @@ void App::render()
 {
     ImVec2 vs = ImGui::GetIO().DisplaySize;
     float statusH = 24.0f; // 与状态栏实际高度一致，避免底部露出缝隙
-    float logH = vs.y * 0.4f;
+    float logH = vs.y * m_logRatio;
     float navW = vs.x * 0.25f; // 左侧占 1/4
     float contentX = navW;
     float contentW = vs.x - navW;
@@ -1887,7 +1887,7 @@ void App::renderEnvPanel()
         beginCard("card_actions", TR("env.actions"), colW);
         {
             float bw = (ImGui::GetContentRegionAvail().x - gap) / 2.0f;
-            // 卡片最上方：一键初始化（克隆→检查→创建环境→安装依赖→验证环境）
+            // 卡片最上方：一键初始化（克隆→检查→创建环境→安装依赖→验证环境）主色强调
             if (ImGui::Button(TR("env.init"), ImVec2(-1, 36)))
                 startInitProject();
             ImGui::Spacing();

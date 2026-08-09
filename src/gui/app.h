@@ -95,4 +95,5 @@ private:
     int m_winX = 100, m_winY = 50, m_winW = 1280, m_winH = 800;
     bool m_venvExists = false; // .venv 是否存在（缓存，避免每帧 _access 造成持续磁盘 IO）
     bool m_autoScroll = true;  // 控制台自动滚动到底部
+    float m_logRatio = 0.36f;  // 控制台高度占窗口比例（默认 36%，可拖拽分隔条调整）
 };
