@@ -57,11 +57,11 @@ LangSys::LangSys()
 
     // Git
     m_data["git.title"] = {"GitHub 下载", "GitHub download"};
-    m_data["git.url"] = {"Git URL:", "Git URL:"};
+    m_data["git.url"] = {"下载地址:", "Download URL:"};
     m_data["git.dir"] = {"项目目录:", "Target dir:"};
-    m_data["git.clone"] = {"克隆 37AC", "Clone 37AC"};
+    m_data["git.clone"] = {"下载 37AC", "Download 37AC"};
     m_data["git.check"] = {"检查目录", "Check dir"};
-    m_data["git.cloning"] = {"正在克隆...", "cloning..."};
+    m_data["git.cloning"] = {"正在下载...", "downloading..."};
     m_data["git.browse"] = {"浏览...", "Browse..."};
     m_data["git.fill"] = {"请填写 URL 和目录", "fill in URL and dir"};
     m_data["git.exists"] = {"目录已存在", "dir exists"};
@@ -98,8 +98,8 @@ LangSys::LangSys()
     m_data["env.env_del_fail"] = {"[env] 删除 .env 失败", "[env] delete .env failed"};
     m_data["env.init"] = {"初始化项目", "Init project"};
     m_data["env.init_start"] = {"开始初始化项目...", "starting project init..."};
-    m_data["env.init_clone_done"] = {"克隆完成", "clone done"};
-    m_data["env.init_clone_fail"] = {"克隆失败 exit=", "clone failed exit="};
+    m_data["env.init_clone_done"] = {"下载完成", "download done"};
+    m_data["env.init_clone_fail"] = {"下载失败 exit=", "download failed exit="};
     m_data["env.init_missing_dirs"] = {"注意: src/cli 或 src/server 不存在，依赖安装可能失败", "warning: src/cli or src/server missing, deps install may fail"};
     m_data["env.init_dirs_ok"] = {"目录检查通过", "directory check passed"};
     m_data["env.init_cli_fail"] = {"CLI 依赖安装失败", "CLI deps install failed"};
@@ -124,14 +124,8 @@ LangSys::LangSys()
     m_data["env.venv_perm"] = {"[venv] 权限被拒绝：.venv 可能被运行中的 Python 进程占用或文件被锁定。请先停止运行中的进程，再点击“删除并重建”重试", "[venv] Permission denied: .venv may be in use by a running Python process or files are locked. Stop running processes, then click 'Delete & recreate'"};
 
     // Server
-    m_data["srv.title"] = {"服务端状态", "Server status"};
-    m_data["srv.on"] = {"运行中", "running"};
-    m_data["srv.off"] = {"未运行", "not running"};
-    m_data["srv.unknown"] = {"未检测", "not checked"};
+    m_data["srv.title"] = {"服务端", "Server"};
     m_data["srv.start"] = {"启动服务端", "Start server"};
-    m_data["srv.check"] = {"检查状态", "Check status"};
-    m_data["srv.online"] = {"[server] 在线", "[server] online"};
-    m_data["srv.offline"] = {"[server] 离线", "[server] offline"};
     m_data["srv.links"] = {"快捷链接", "Links"};
     m_data["srv.web"] = {"打开 Web 前端", "Web frontend"};
     m_data["srv.api"] = {"API 测试", "API test"};

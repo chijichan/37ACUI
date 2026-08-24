@@ -147,9 +147,9 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
     ${OPENGL_LIBRARIES}
 )
 
-# Windows 子系统依赖
+# Windows 子系统依赖（ws2_32 已随服务端状态检测移除，不再需要）
 if(WIN32)
-    target_link_libraries(${PROJECT_NAME} PRIVATE winmm ws2_32)
+    target_link_libraries(${PROJECT_NAME} PRIVATE winmm)
 endif()
 
 # ========================

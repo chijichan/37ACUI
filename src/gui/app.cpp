@@ -174,6 +174,95 @@ static bool execCapture(const std::string &cmd, const std::string &cwd,
     return true;
 }
 
+// 用 curl 下载 GitHub 归档 zip，并用 tar 解压后移动到目标目录。
+// 返回 0 成功；curl/tar 失败返回其退出码，解压/移动失败返回 -1。
+// out 会携带命令的错误输出（成功时通常为空）。
+static int downloadArchiveZip(const std::string &url, const std::string &targetDir,
+                              std::string &out)
+{
+    out.clear();
+    // parent = 目标目录的父目录
+    std::string parent = targetDir;
+    auto pos = parent.find_last_of("/\\");
+    if (pos == std::string::npos)
+        return -1;
+    parent = parent.substr(0, pos);
+
+    // 确保父目录存在
+    {
+        std::string cur;
+        for (size_t i = 0; i < parent.size(); i++)
+        {
+            cur += parent[i];
+            if (parent[i] == '\\' || parent[i] == '/')
+            {
+                if (cur.size() > 3) // 跳过盘符部分（如 C:）
+                    _mkdir(cur.c_str());
+            }
+        }
+        _mkdir(parent.c_str());
+    }
+
+    const std::string zip = parent + "/37AC-master.zip";
+    const std::string tmp = parent + "/_37ac_tmp";
+
+    // 1) 下载 zip
+    {
+        std::string dl = "curl -L -sS -o \"" + zip + "\" \"" + url + "\"";
+        int ec = -1;
+        if (!execCapture(dl, "", out, ec) || ec != 0)
+        {
+            remove(zip.c_str());
+            return ec;
+        }
+    }
+
+    // 2) 解压到临时目录（tar 不支持 --one-top-level，先解出再移动顶层目录）
+    {
+        std::string rm;
+        int rc = 0;
+        execCapture("rmdir /s /q \"" + tmp + "\"", "", rm, rc);
+        _mkdir(tmp.c_str());
+        std::string ex = "tar -xf \"" + zip + "\" -C \"" + tmp + "\"";
+        int ec = -1;
+        if (!execCapture(ex, "", out, ec) || ec != 0)
+        {
+            remove(zip.c_str());
+            std::string rm2;
+            int rc2 = 0;
+            execCapture("rmdir /s /q \"" + tmp + "\"", "", rm2, rc2);
+            return ec;
+        }
+    }
+    remove(zip.c_str()); // 清理临时 zip
+
+    // 3) 找到临时目录下的顶层目录，移动到目标目录
+    bool moved = false;
+    _finddata_t fd;
+    intptr_t h = _findfirst((tmp + "/*").c_str(), &fd);
+    if (h != -1)
+    {
+        do
+        {
+            if ((fd.attrib & _A_SUBDIR) && strcmp(fd.name, ".") != 0 && strcmp(fd.name, "..") != 0)
+            {
+                if (MoveFileA((tmp + "/" + fd.name).c_str(), targetDir.c_str()))
+                {
+                    moved = true;
+                    break;
+                }
+            }
+        } while (_findnext(h, &fd) == 0);
+        _findclose(h);
+    }
+    {
+        std::string rm;
+        int rc = 0;
+        execCapture("rmdir /s /q \"" + tmp + "\"", "", rm, rc);
+    }
+    return moved ? 0 : -1;
+}
+
 // 在资源管理器中打开文件夹（或按默认程序打开文件）
 static void openPath(const std::string &p)
 {
@@ -428,6 +517,15 @@ void App::loadConfig()
         }
     }
     fclose(f);
+    // 旧配置兼容：将 git 仓库地址(.git) 迁移为 GitHub 归档 zip 下载地址
+    {
+        std::string u(m_gitUrl);
+        if (u.size() > 4 && u.compare(u.size() - 4, 4, ".git") == 0)
+        {
+            u = u.substr(0, u.size() - 4) + "/archive/refs/heads/master.zip";
+            strncpy_s(m_gitUrl, u.c_str(), sizeof(m_gitUrl) - 1);
+        }
+    }
     // 若配置中没有 program=，用当前 exe 目录（init 中已自动获取）
     if (m_programDir.empty())
         updateProjectPaths();
@@ -442,8 +540,6 @@ App::~App()
     stopProcess();
     if (m_procThread.joinable())
         m_procThread.join();
-    if (m_pingThread.joinable())
-        m_pingThread.join();
 }
 
 // ==================== 初始化 ====================
@@ -638,7 +734,7 @@ void App::addLog(const std::string &msg, unsigned int)
 // ==================== Python ====================
 bool App::checkPython()
 {
-    // 快照项目根路径：本函数可能被后台线程（克隆/建环境/初始化）调用
+    // 快照项目根路径：本函数可能被后台线程（下载/建环境/初始化）调用
     std::string proot;
     {
         std::lock_guard<std::mutex> lock(m_stateMutex);
@@ -672,7 +768,7 @@ bool App::runPython(const std::string &cmd, const std::string &cwd,
 {
     output.clear();
     exitCode = -1;
-    // 工作目录不存在时（如项目尚未克隆），cmd 的 cd /d 会失败并输出
+    // 工作目录不存在时（如项目尚未下载），cmd 的 cd /d 会失败并输出
     // "The system cannot find the path specified."，且 && 链断开导致 python 无法执行。
     // 此时回退到程序目录（一定存在）运行，.venv 查找链也会自动落到系统 PATH 的 python，
     // 这样项目目录缺失时仍能正确检测系统 Python，而不是误报 not found。
@@ -771,7 +867,7 @@ void App::venvThreadFunc(bool recreate)
 }
 
 // ==================== 一键初始化项目 ====================
-// 后台线程顺序执行：克隆 37AC → 检查目录 → 创建虚拟环境 → 安装依赖 → 验证环境
+// 后台线程顺序执行：下载 37AC → 检查目录 → 创建虚拟环境 → 安装依赖 → 验证环境
 void App::startInitProject()
 {
     if (m_procRunning)
@@ -798,53 +894,13 @@ void App::initProjectThreadFunc(const std::string &url)
         proot = m_projectRoot;
     }
 
-    // ===== 1. 克隆 37AC（目录不存在时） =====
+    // ===== 1. 下载 37AC 源码包（目录不存在时，从 GitHub 归档 zip 下载并解压） =====
     if (_access(proot.c_str(), 0) != 0)
     {
-        std::string gv;
-        int gvc = 0;
-        execCapture("git --version 2>&1", "", gv, gvc); // 隐藏窗口，避免闪控制台
-        if (gvc != 0)
-        {
-            addError(std::string(TR("log.git")) + TR("git.not_found"));
-            m_procRunning = false;
-            return;
-        }
-        while (!gv.empty() && (gv.back() == '\n' || gv.back() == '\r'))
-            gv.pop_back();
-        if (!gv.empty())
-            addInfo(std::string(TR("log.git")) + gv);
-
-        // 确保父目录（project/）存在，git clone 才能创建目标目录
-        std::string parent = proot;
-        auto pos = parent.find_last_of("/\\");
-        if (pos != std::string::npos)
-        {
-            parent = parent.substr(0, pos);
-            std::string cur;
-            for (size_t i = 0; i < parent.size(); i++)
-            {
-                cur += parent[i];
-                if (parent[i] == '\\' || parent[i] == '/')
-                {
-                    if (cur.size() > 3) // 跳过盘符部分（如 C:）
-                        _mkdir(cur.c_str());
-                }
-            }
-            _mkdir(parent.c_str());
-        }
-
         addInfo(std::string(TR("log.init")) + TR("git.clone") + ": " + url);
-        std::string cmd = "git clone --depth 1 \"" + url + "\" \"" + proot + "\" 2>&1";
         std::string gco;
-        int ec = 0;
-        if (!execCapture(cmd, "", gco, ec)) // 隐藏窗口，避免闪控制台
-        {
-            addError(std::string(TR("log.git")) + "cannot start");
-            m_procRunning = false;
-            return;
-        }
-        // 按行输出克隆日志
+        int ec = downloadArchiveZip(url, proot, gco);
+        // 按行输出下载/解压日志（错误信息等）
         {
             std::string l;
             for (char ch : gco)
@@ -932,7 +988,7 @@ void App::initProjectThreadFunc(const std::string &url)
 
     // ===== 5. 生成环境变量文件 (.env) =====
     // 37AC 的 .env.example 位于 src/cli、src/server、src/www。
-    // 克隆后各组件 .env 不存在，服务/CLI/前端无法直接运行，此处自动从示例复制生成。
+    // 下载后各组件 .env 不存在，服务/CLI/前端无法直接运行，此处自动从示例复制生成。
     addInfo(std::string(TR("log.init")) + TR("env.init_env") + "...");
     {
         std::vector<std::string> comps = {m_cliRoot, m_serverRoot, proot + "/src/www"};
@@ -1118,23 +1174,18 @@ void App::startGitClone(const std::string &url, const std::string &dir)
         addWarn("[warn] process running");
         return;
     }
-    addInfo(std::string("[Git] cloning: ") + url);
+    addInfo(std::string("[Git] downloading: ") + url);
     m_gitCloning = true;
     m_procRunning = true;
     if (m_procThread.joinable())
         m_procThread.join();
     m_procThread = std::thread([this, url, dir]()
                                {
-        std::string gv; int gvc = 0;
-        execCapture("git --version 2>&1", "", gv, gvc); // 隐藏窗口，避免闪控制台
-        if (gvc != 0) { addError("[Git] git not found"); { std::lock_guard<std::mutex> lock(m_stateMutex); m_gitCloning=false; } m_procRunning=false; return; }
-        while (!gv.empty() && (gv.back()=='\n'||gv.back()=='\r')) gv.pop_back();
-        if (!gv.empty()) addInfo(std::string("[Git] ")+gv);
+        // 删除旧目录（如需覆盖）
         if (_access(dir.c_str(),0)==0) { addWarn("[Git] removing old..."); std::string oo; int cc=0; execCapture("rmdir /s /q \""+dir+"\"", "", oo, cc); }
-        std::string cmd = "git clone --depth 1 \""+url+"\" \""+dir+"\" 2>&1";
-        std::string out; int ec = 0;
-        if (!execCapture(cmd, "", out, ec)) { addError("[Git] cannot start"); { std::lock_guard<std::mutex> lock(m_stateMutex); m_gitCloning=false; } m_procRunning=false; return; }
-        // 按行输出克隆日志
+        // 下载 GitHub 归档 zip 并解压到目标目录
+        std::string out; int ec = downloadArchiveZip(url, dir, out);
+        // 按行输出下载/解压日志（错误信息等）
         {
             std::string l;
             for (char ch : out)
@@ -1148,8 +1199,8 @@ void App::startGitClone(const std::string &url, const std::string &dir)
             if(ec==0){ m_projectRoot=dir; m_cliRoot=dir+"/src/cli"; m_serverRoot=dir+"/src/server"; }
             m_gitCloning=false;
         }
-        if(ec==0){addSuccess("[Git] clone success!"); refreshVenvState(); checkPython();}
-        else addError(std::string("[Git] clone failed exit=")+std::to_string(ec));
+        if(ec==0){addSuccess("[Git] download success!"); refreshVenvState(); checkPython();}
+        else addError(std::string("[Git] download failed exit=")+std::to_string(ec));
         m_procRunning=false; });
 }
 
@@ -1209,8 +1260,6 @@ void App::run()
     stopProcess();
     if (m_procThread.joinable())
         m_procThread.join();
-    if (m_pingThread.joinable())
-        m_pingThread.join();
     // worker 线程已全部 join，此时读路径等共享成员无竞争
     saveConfig();
     ImGui_ImplOpenGL3_Shutdown();
@@ -1485,7 +1534,7 @@ void App::renderToolsPanel()
 // ==================== 设置页（语言 + Git 配置） ====================
 void App::renderSettingsPanel()
 {
-    // 快照跨线程共享状态（worker 克隆完成时会写 m_projectRoot 等）
+    // 快照跨线程共享状态（worker 下载完成时会写 m_projectRoot 等）
     std::string progDir, proot;
     {
         std::lock_guard<std::mutex> lock(m_stateMutex);
@@ -1678,7 +1727,7 @@ void App::renderLogArea()
 // ==================== 状态栏 ====================
 void App::renderStatusBar()
 {
-    // 快照跨线程共享状态，避免与后台线程（克隆/建环境/检测）竞争
+    // 快照跨线程共享状态，避免与后台线程（下载/建环境/检测）竞争
     bool pyOk = false;
     std::string proot;
     {
@@ -1711,7 +1760,7 @@ void App::renderStatusBar()
 // ==================== 环境面板（含 Git 下载） ====================
 void App::renderEnvPanel()
 {
-    // 快照跨线程共享状态，避免与后台线程（克隆/建环境/检测）竞争
+    // 快照跨线程共享状态，避免与后台线程（下载/建环境/检测）竞争
     bool pyOk = false, gitCloning = false;
     std::string pyVer, proot, cli, srv;
     {
@@ -1887,7 +1936,7 @@ void App::renderEnvPanel()
         beginCard("card_actions", TR("env.actions"), colW);
         {
             float bw = (ImGui::GetContentRegionAvail().x - gap) / 2.0f;
-            // 卡片最上方：一键初始化（克隆→检查→创建环境→安装依赖→验证环境）主色强调
+            // 卡片最上方：一键初始化（下载→检查→创建环境→安装依赖→验证环境）主色强调
             if (ImGui::Button(TR("env.init"), ImVec2(-1, 36)))
                 startInitProject();
             ImGui::Spacing();
@@ -1921,36 +1970,9 @@ void App::renderServerPanel()
 {
     beginCard("card_srv", TR("srv.title"));
     {
-        // 状态行：圆点 + 状态文字
-        drawDot(m_serverStatus == 1 ? g_colGreen : (m_serverStatus == 0 ? g_colRed : g_colGray));
-        if (m_serverStatus == 1)
-            ImGui::TextColored(ImVec4(0.11f, 0.41f, 0.33f, 1.0f), "%s", TR("srv.on"));
-        else if (m_serverStatus == 0)
-            ImGui::TextColored(ImVec4(0.72f, 0.41f, 0.42f, 1.0f), "%s", TR("srv.off"));
-        else
-            ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f), "%s", TR("srv.unknown"));
-        ImGui::Spacing();
-
         if (ImGui::Button(TR("srv.start"), ImVec2(-1, 40)))
             startProcess("start server", "runserver.py", m_serverRoot);
-        float bw = (ImGui::GetContentRegionAvail().x - ImGui::GetStyle().ItemSpacing.x) / 2.0f;
-        if (ImGui::Button(TR("srv.check"), ImVec2(bw, 36)))
-        {
-            // 异步检查：WinHTTP 超时最长 10s，同步调用会卡死 UI
-            if (m_pingThread.joinable())
-                m_pingThread.join(); // 上一次检查未结束时等待（最多数秒）
-            addInfo("[server] checking...");
-            m_pingThread = std::thread([this]()
-                                       {
-                bool ok = m_http.ping();
-                m_serverStatus = ok ? 1 : 0;
-                if (ok)
-                    addSuccess(TR("srv.online"));
-                else
-                    addWarn(TR("srv.offline")); });
-        }
-        ImGui::SameLine();
-        if (ImGui::Button(TR("srv.api"), ImVec2(bw, 36)))
+        if (ImGui::Button(TR("srv.api"), ImVec2(-1, 36)))
             ShellExecuteA(0, "open", "http://127.0.0.1:13138/upload", 0, 0, SW_SHOW);
     }
     endCard();
