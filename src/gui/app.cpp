@@ -1640,15 +1640,15 @@ void App::renderLogArea()
             // 支持: train / resume / predict / node / verify / menu
             std::string cmd;
             if (c == "train")
-                cmd = "main.py --mode 1";
+                cmd = "main.py train";
             else if (c == "resume")
-                cmd = "main.py --mode 1 --resume auto";
+                cmd = "main.py train --resume";
             else if (c == "predict")
-                cmd = "main.py --mode 2";
+                cmd = "main.py predict";
             else if (c == "node")
-                cmd = "main.py --mode 4";
+                cmd = "main.py node";
             else if (c == "verify")
-                cmd = "main.py --mode 3";
+                cmd = "main.py dataset verify";
             else if (c == "menu")
                 cmd = "main.py";
             else if (c == "server")
@@ -1965,12 +1965,15 @@ void App::renderCliPanel()
     {
         float bw = (ImGui::GetContentRegionAvail().x - gap) / 2.0f;
         if (ImGui::Button(TR("cli.btn_train"), ImVec2(bw, 40)))
-            startProcess("train", "main.py --mode 1", m_cliRoot);
+            startProcess("train", "main.py train", m_cliRoot);
         ImGui::SameLine();
         if (ImGui::Button(TR("cli.btn_resume"), ImVec2(bw, 40)))
-            startProcess("resume", "main.py --mode 1 --resume auto", m_cliRoot);
-        if (ImGui::Button(TR("cli.btn_predict"), ImVec2(-1, 40)))
-            startProcess("predict", "main.py --mode 2", m_cliRoot);
+            startProcess("resume", "main.py train --resume", m_cliRoot);
+        if (ImGui::Button(TR("cli.btn_predict"), ImVec2(bw, 40)))
+            startProcess("predict", "main.py predict", m_cliRoot);
+        ImGui::SameLine();
+        if (ImGui::Button(TR("cli.btn_predict_llm"), ImVec2(bw, 40)))
+            startProcess("predict-llm", "main.py predict --llm", m_cliRoot);
     }
     endCard();
 
@@ -1978,10 +1981,10 @@ void App::renderCliPanel()
     {
         float bw = (ImGui::GetContentRegionAvail().x - gap) / 2.0f;
         if (ImGui::Button(TR("cli.btn_node"), ImVec2(bw, 40)))
-            startProcess("node", "main.py --mode 4", m_cliRoot);
+            startProcess("node", "main.py node", m_cliRoot);
         ImGui::SameLine();
         if (ImGui::Button(TR("cli.btn_verify"), ImVec2(bw, 40)))
-            startProcess("verify", "main.py --mode 3", m_cliRoot);
+            startProcess("verify", "main.py dataset verify", m_cliRoot);
         if (ImGui::Button(TR("cli.btn_menu"), ImVec2(-1, 40)))
             startProcess("menu", "main.py", m_cliRoot);
     }

@@ -123,4 +123,25 @@ build.bat clean
 
 ## 许可证
 
-本项目仅用于学习和研究目的。
+本项目采用 **GPL-3.0**（GNU General Public License v3）开源协议。
+
+```text
+Copyright (C) 2026 37ACUI Contributors
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program.  If not, see <https://www.gnu.org/licenses/>.
+```
+
+完整协议文本见 [LICENSE](LICENSE)。
+
+> **说明**：内置的第三方依赖 **Dear ImGui**（MIT License）与 **ImPlot**（MIT License）保留其各自许可证，MIT 与 GPL-3.0 兼容；其所依赖的 37AC 项目遵循其自身的许可证。

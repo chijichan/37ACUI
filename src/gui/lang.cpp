@@ -141,6 +141,7 @@ LangSys::LangSys()
     m_data["cli.btn_train"] = {"开始训练", "Train"};
     m_data["cli.btn_resume"] = {"继续训练", "Resume"};
     m_data["cli.btn_predict"] = {"预测角色", "Predict"};
+    m_data["cli.btn_predict_llm"] = {"LLM 预测", "Predict (LLM)"};
     m_data["cli.node"] = {"节点与工具", "Node & Tools"};
     m_data["cli.btn_node"] = {"启动节点", "Node"};
     m_data["cli.btn_verify"] = {"验证图像", "Verify"};
