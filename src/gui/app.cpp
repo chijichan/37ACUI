@@ -18,7 +18,7 @@
 
 static GLFWwindow *g_window = nullptr;
 
-// 从 .exe 嵌入资源加载图标并设置为 GLFW 窗口图标（任务栏 + 标题栏）
+// 从 .exe 内嵌资源加载图标并设置为 GLFW 窗口图标（任务栏 + 标题栏）
 static void setWindowIcon()
 {
     // 加载图标资源（ID 101，与 app.rc 一致）
@@ -48,19 +48,17 @@ static void setWindowIcon()
         return;
     }
 
-    // 分配 RGBA 像素缓冲区
+    // 分配 RGBA 像素缓冲
     std::vector<unsigned char> pixels(static_cast<size_t>(w) * h * 4);
 
-    // 用 BitBlt 从图标 DC 中提取 RGBA 数据
+    // 用 DrawIconEx 将图标绘制到位图，再提取 RGBA 数据
     HDC hdcScreen = GetDC(nullptr);
     HDC hdcMem = CreateCompatibleDC(hdcScreen);
     HBITMAP hBmp = CreateCompatibleBitmap(hdcScreen, w, h);
     HGDIOBJ oldBmp = SelectObject(hdcMem, hBmp);
 
-    // 将图标绘制到内存位图
     DrawIconEx(hdcMem, 0, 0, hIcon, w, h, 0, nullptr, DI_NORMAL);
 
-    // 读取像素 (BGRA -> RGBA)
     BITMAPINFO bi = {};
     bi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
     bi.bmiHeader.biWidth = w;
@@ -71,7 +69,7 @@ static void setWindowIcon()
 
     GetDIBits(hdcMem, hBmp, 0, h, pixels.data(), &bi, DIB_RGB_COLORS);
 
-    // BGRA -> RGBA
+    // BGRA -> RGBA（GLFW 需要 RGBA）
     for (int i = 0; i < w * h; i++)
     {
         unsigned char r = pixels[i * 4 + 2];
@@ -116,6 +114,180 @@ static std::string stripAnsi(const std::string &s)
         out += s[i];
     }
     return out;
+}
+
+// 执行命令并捕获输出，不弹出控制台窗口。
+// GUI 子系统下 _popen/system 会通过 cmd.exe 分配新控制台导致闪窗，
+// 这里用 CreateProcess + CREATE_NO_WINDOW + 匿名管道（与 procThreadFunc 同模式）。
+static bool execCapture(const std::string &cmd, const std::string &cwd,
+                        std::string &output, int &exitCode)
+{
+    output.clear();
+    exitCode = -1;
+    HANDLE hOutR = nullptr, hOutW = nullptr;
+    SECURITY_ATTRIBUTES sa = {sizeof(sa), 0, TRUE};
+    if (!CreatePipe(&hOutR, &hOutW, &sa, 0))
+        return false;
+    SetHandleInformation(hOutR, HANDLE_FLAG_INHERIT, 0);
+
+    // stdin 也建管道（子进程读到 EOF），避免使用无效的父进程标准句柄
+    HANDLE hInR = nullptr, hInW = nullptr;
+    CreatePipe(&hInR, &hInW, &sa, 0);
+    SetHandleInformation(hInW, HANDLE_FLAG_INHERIT, 0);
+
+    STARTUPINFOA si = {sizeof(si)};
+    si.dwFlags = STARTF_USESTDHANDLES;
+    si.hStdOutput = hOutW;
+    si.hStdError = hOutW;
+    si.hStdInput = hInR;
+
+    // CreateProcess 需要可写缓冲区；统一经 cmd /c 执行（支持管道/内建命令语法）
+    std::string cmdLine = "cmd /c " + cmd;
+    PROCESS_INFORMATION pi = {};
+    BOOL ok = CreateProcessA(nullptr, &cmdLine[0], 0, 0, TRUE,
+                             CREATE_NO_WINDOW, 0,
+                             (cwd.empty() ? nullptr : cwd.c_str()), &si, &pi);
+    CloseHandle(hOutW);
+    CloseHandle(hInR);
+    CloseHandle(hInW);
+    if (!ok)
+    {
+        CloseHandle(hOutR);
+        output = "cannot start";
+        return false;
+    }
+    CloseHandle(pi.hThread);
+
+    char buf[4096];
+    DWORD read = 0;
+    while (ReadFile(hOutR, buf, sizeof(buf) - 1, &read, 0) && read > 0)
+    {
+        buf[read] = 0;
+        output += buf;
+    }
+    CloseHandle(hOutR);
+    WaitForSingleObject(pi.hProcess, INFINITE);
+    DWORD ec = 0;
+    GetExitCodeProcess(pi.hProcess, &ec);
+    CloseHandle(pi.hProcess);
+    exitCode = (int)ec;
+    return true;
+}
+
+// 用 curl 下载 GitHub 归档 zip，并用 tar 解压后移动到目标目录。
+// 返回 0 成功；curl/tar 失败返回其退出码，解压/移动失败返回 -1。
+// out 会携带命令的错误输出（成功时通常为空）。
+static int downloadArchiveZip(const std::string &url, const std::string &targetDir,
+                              std::string &out)
+{
+    out.clear();
+    // parent = 目标目录的父目录
+    std::string parent = targetDir;
+    auto pos = parent.find_last_of("/\\");
+    if (pos == std::string::npos)
+        return -1;
+    parent = parent.substr(0, pos);
+
+    // 确保父目录存在
+    {
+        std::string cur;
+        for (size_t i = 0; i < parent.size(); i++)
+        {
+            cur += parent[i];
+            if (parent[i] == '\\' || parent[i] == '/')
+            {
+                if (cur.size() > 3) // 跳过盘符部分（如 C:）
+                    _mkdir(cur.c_str());
+            }
+        }
+        _mkdir(parent.c_str());
+    }
+
+    const std::string zip = parent + "/37AC-master.zip";
+    const std::string tmp = parent + "/_37ac_tmp";
+
+    // 1) 下载 zip
+    {
+        std::string dl = "curl -L -sS -o \"" + zip + "\" \"" + url + "\"";
+        int ec = -1;
+        if (!execCapture(dl, "", out, ec) || ec != 0)
+        {
+            remove(zip.c_str());
+            return ec;
+        }
+    }
+
+    // 2) 解压到临时目录（tar 不支持 --one-top-level，先解出再移动顶层目录）
+    {
+        std::string rm;
+        int rc = 0;
+        execCapture("rmdir /s /q \"" + tmp + "\"", "", rm, rc);
+        _mkdir(tmp.c_str());
+        std::string ex = "tar -xf \"" + zip + "\" -C \"" + tmp + "\"";
+        int ec = -1;
+        if (!execCapture(ex, "", out, ec) || ec != 0)
+        {
+            remove(zip.c_str());
+            std::string rm2;
+            int rc2 = 0;
+            execCapture("rmdir /s /q \"" + tmp + "\"", "", rm2, rc2);
+            return ec;
+        }
+    }
+    remove(zip.c_str()); // 清理临时 zip
+
+    // 3) 找到临时目录下的顶层目录，移动到目标目录
+    bool moved = false;
+    _finddata_t fd;
+    intptr_t h = _findfirst((tmp + "/*").c_str(), &fd);
+    if (h != -1)
+    {
+        do
+        {
+            if ((fd.attrib & _A_SUBDIR) && strcmp(fd.name, ".") != 0 && strcmp(fd.name, "..") != 0)
+            {
+                if (MoveFileA((tmp + "/" + fd.name).c_str(), targetDir.c_str()))
+                {
+                    moved = true;
+                    break;
+                }
+            }
+        } while (_findnext(h, &fd) == 0);
+        _findclose(h);
+    }
+    {
+        std::string rm;
+        int rc = 0;
+        execCapture("rmdir /s /q \"" + tmp + "\"", "", rm, rc);
+    }
+    return moved ? 0 : -1;
+}
+
+// 在资源管理器中打开文件夹（或按默认程序打开文件）
+static void openPath(const std::string &p)
+{
+    ShellExecuteA(0, "open", p.c_str(), 0, 0, SW_SHOW);
+}
+
+// 用记事本打开文本文件；文件不存在时记事本会新建（便于创建 .env）
+static void openTextFile(const std::string &p)
+{
+    ShellExecuteA(0, "open", "notepad.exe", p.c_str(), 0, SW_SHOW);
+}
+
+// 字节数格式化为可读字符串（B/KB/MB/GB/TB）
+static std::string fmtBytes(double b)
+{
+    const char *units[] = {"B", "KB", "MB", "GB", "TB"};
+    int i = 0;
+    while (b >= 1024.0 && i < 4)
+    {
+        b /= 1024.0;
+        i++;
+    }
+    char buf[32];
+    snprintf(buf, sizeof(buf), "%.1f %s", b, units[i]);
+    return std::string(buf);
 }
 
 // ==================== 视觉辅助 ====================
@@ -222,7 +394,8 @@ static bool navExitItem(const char *label)
 
 // ==================== 统一配置 ====================
 // 所有持久化设置都写入 acui_settings.ini (acui.ini 由 ImGui 自动管理窗口布局)
-static const char *CFG_FILE = "acui_settings.ini";
+// 两个文件都写入 exe 所在目录，而非当前工作目录
+static const char *CFG_FILE_NAME = "acui_settings.ini";
 
 // 根据程序地址计算项目路径：m_projectRoot = programDir + project/37AC
 void App::updateProjectPaths()
@@ -278,7 +451,8 @@ void App::saveConfig()
         glfwGetWindowPos(g_window, &m_winX, &m_winY);
         glfwGetWindowSize(g_window, &m_winW, &m_winH);
     }
-    FILE *f = fopen(CFG_FILE, "w");
+    std::string cfgPath = m_programDir + "/" + CFG_FILE_NAME;
+    FILE *f = fopen(cfgPath.c_str(), "w");
     if (!f)
         return;
     fprintf(f, "win_x=%d\n", m_winX);
@@ -295,7 +469,8 @@ void App::saveConfig()
 
 void App::loadConfig()
 {
-    FILE *f = fopen(CFG_FILE, "r");
+    std::string cfgPath = m_programDir + "/" + CFG_FILE_NAME;
+    FILE *f = fopen(cfgPath.c_str(), "r");
     if (!f)
         return;
     char line[512];
@@ -342,6 +517,15 @@ void App::loadConfig()
         }
     }
     fclose(f);
+    // 旧配置兼容：将 git 仓库地址(.git) 迁移为 GitHub 归档 zip 下载地址
+    {
+        std::string u(m_gitUrl);
+        if (u.size() > 4 && u.compare(u.size() - 4, 4, ".git") == 0)
+        {
+            u = u.substr(0, u.size() - 4) + "/archive/refs/heads/master.zip";
+            strncpy_s(m_gitUrl, u.c_str(), sizeof(m_gitUrl) - 1);
+        }
+    }
     // 若配置中没有 program=，用当前 exe 目录（init 中已自动获取）
     if (m_programDir.empty())
         updateProjectPaths();
@@ -356,8 +540,6 @@ App::~App()
     stopProcess();
     if (m_procThread.joinable())
         m_procThread.join();
-    if (m_pingThread.joinable())
-        m_pingThread.join();
 }
 
 // ==================== 初始化 ====================
@@ -378,7 +560,7 @@ bool App::init(const char *title, int width, int height)
     glfwMakeContextCurrent(g_window);
     glfwSwapInterval(1);
 
-    // 设置窗口图标（任务栏 + 标题栏，从嵌入资源加载）
+    // 设置窗口图标（任务栏 + 标题栏，从内嵌资源加载）
     setWindowIcon();
 
     // 自动获取程序地址（exe 所在目录）
@@ -504,7 +686,10 @@ bool App::init(const char *title, int width, int height)
     }
 
     // 手动加载上次保存的窗口布局（IniFilename=NULL 时 NewFrame 不会自动加载）
-    ImGui::LoadIniSettingsFromDisk("acui.ini");
+    {
+        std::string iniPath = m_programDir + "/acui.ini";
+        ImGui::LoadIniSettingsFromDisk(iniPath.c_str());
+    }
 
     ImGui_ImplGlfw_InitForOpenGL(g_window, true);
     ImGui_ImplOpenGL3_Init("#version 330");
@@ -549,7 +734,7 @@ void App::addLog(const std::string &msg, unsigned int)
 // ==================== Python ====================
 bool App::checkPython()
 {
-    // 快照项目根路径：本函数可能被后台线程（克隆/建环境/初始化）调用
+    // 快照项目根路径：本函数可能被后台线程（下载/建环境/初始化）调用
     std::string proot;
     {
         std::lock_guard<std::mutex> lock(m_stateMutex);
@@ -583,7 +768,7 @@ bool App::runPython(const std::string &cmd, const std::string &cwd,
 {
     output.clear();
     exitCode = -1;
-    // 工作目录不存在时（如项目尚未克隆），cmd 的 cd /d 会失败并输出
+    // 工作目录不存在时（如项目尚未下载），cmd 的 cd /d 会失败并输出
     // "The system cannot find the path specified."，且 && 链断开导致 python 无法执行。
     // 此时回退到程序目录（一定存在）运行，.venv 查找链也会自动落到系统 PATH 的 python，
     // 这样项目目录缺失时仍能正确检测系统 Python，而不是误报 not found。
@@ -605,23 +790,19 @@ bool App::runPython(const std::string &cmd, const std::string &cwd,
                 py = "python";
         }
     }
-    // 用 cmd /c + cd /d 在目标目录运行，确保 .venv 等相对路径落在正确位置
-    std::string fc = "cmd /c chcp 65001>nul & cd /d \"" + workDir + "\" && ";
+    // 用 CreateProcess（隐藏窗口）在目标目录运行，确保 .venv 等相对路径落在正确位置；
+    // 不能用 _popen/system：GUI 子系统下会闪出控制台窗口
+    std::string fc = "chcp 65001>nul & ";
     if (py != "python")
         fc += "\"" + py + "\"";
     else
         fc += "python";
     fc += " -u " + cmd + " 2>&1";
-    FILE *pipe = _popen(fc.c_str(), "r");
-    if (!pipe)
+    if (!execCapture(fc, workDir, output, exitCode))
     {
         output = "cannot start";
         return false;
     }
-    char buf[4096];
-    while (fgets(buf, sizeof(buf), pipe))
-        output += buf;
-    exitCode = _pclose(pipe);
     while (!output.empty() && (output.back() == '\n' || output.back() == '\r'))
         output.pop_back();
     return true;
@@ -654,7 +835,10 @@ void App::venvThreadFunc(bool recreate)
     if (recreate && _access(venvDir.c_str(), 0) == 0)
     {
         addWarn(std::string(TR("env.venv_del_ok")));
-        system(("cmd /c rmdir /s /q \"" + venvDir + "\"").c_str());
+        // 隐藏窗口删除，避免 GUI 下闪出控制台窗口
+        std::string o2;
+        int c2 = 0;
+        execCapture("rmdir /s /q \"" + venvDir + "\"", "", o2, c2);
     }
     else if (!recreate && _access(venvDir.c_str(), 0) == 0)
     {
@@ -683,7 +867,7 @@ void App::venvThreadFunc(bool recreate)
 }
 
 // ==================== 一键初始化项目 ====================
-// 后台线程顺序执行：克隆 37AC → 检查目录 → 创建虚拟环境 → 安装依赖 → 验证环境
+// 后台线程顺序执行：下载 37AC → 检查目录 → 创建虚拟环境 → 安装依赖 → 验证环境
 void App::startInitProject()
 {
     if (m_procRunning)
@@ -710,64 +894,29 @@ void App::initProjectThreadFunc(const std::string &url)
         proot = m_projectRoot;
     }
 
-    // ===== 1. 克隆 37AC（目录不存在时） =====
+    // ===== 1. 下载 37AC 源码包（目录不存在时，从 GitHub 归档 zip 下载并解压） =====
     if (_access(proot.c_str(), 0) != 0)
     {
-        FILE *t = _popen("git --version 2>&1", "r");
-        if (!t)
-        {
-            addError(std::string(TR("log.git")) + TR("git.not_found"));
-            m_procRunning = false;
-            return;
-        }
-        char b[256];
-        if (fgets(b, sizeof(b), t))
-        {
-            std::string v(b);
-            while (!v.empty() && (v.back() == '\n' || v.back() == '\r'))
-                v.pop_back();
-            addInfo(std::string(TR("log.git")) + v);
-        }
-        _pclose(t);
-
-        // 确保父目录（project/）存在，git clone 才能创建目标目录
-        std::string parent = proot;
-        auto pos = parent.find_last_of("/\\");
-        if (pos != std::string::npos)
-        {
-            parent = parent.substr(0, pos);
-            std::string cur;
-            for (size_t i = 0; i < parent.size(); i++)
-            {
-                cur += parent[i];
-                if (parent[i] == '\\' || parent[i] == '/')
-                {
-                    if (cur.size() > 3) // 跳过盘符部分（如 C:）
-                        _mkdir(cur.c_str());
-                }
-            }
-            _mkdir(parent.c_str());
-        }
-
         addInfo(std::string(TR("log.init")) + TR("git.clone") + ": " + url);
-        std::string cmd = "git clone --depth 1 \"" + url + "\" \"" + proot + "\" 2>&1";
-        FILE *pipe = _popen(cmd.c_str(), "r");
-        if (!pipe)
+        std::string gco;
+        int ec = downloadArchiveZip(url, proot, gco);
+        // 按行输出下载/解压日志（错误信息等）
         {
-            addError(std::string(TR("log.git")) + "cannot start");
-            m_procRunning = false;
-            return;
+            std::string l;
+            for (char ch : gco)
+            {
+                if (ch == '\n')
+                {
+                    while (!l.empty() && l.back() == '\r')
+                        l.pop_back();
+                    if (!l.empty())
+                        addInfo("  " + stripAnsi(l));
+                    l.clear();
+                }
+                else
+                    l += ch;
+            }
         }
-        char buf[4096];
-        while (fgets(buf, sizeof(buf), pipe))
-        {
-            std::string l(buf);
-            while (!l.empty() && (l.back() == '\n' || l.back() == '\r'))
-                l.pop_back();
-            if (!l.empty())
-                addInfo("  " + stripAnsi(l));
-        }
-        int ec = _pclose(pipe);
         if (ec != 0)
         {
             addError(std::string(TR("log.init")) + TR("env.init_clone_fail") + std::to_string(ec));
@@ -837,7 +986,25 @@ void App::initProjectThreadFunc(const std::string &url)
     else
         addSuccess(std::string(TR("log.init")) + TR("env.init_srv_ok"));
 
-    // ===== 5. 验证环境 =====
+    // ===== 5. 生成环境变量文件 (.env) =====
+    // 37AC 的 .env.example 位于 src/cli、src/server、src/www。
+    // 下载后各组件 .env 不存在，服务/CLI/前端无法直接运行，此处自动从示例复制生成。
+    addInfo(std::string(TR("log.init")) + TR("env.init_env") + "...");
+    {
+        std::vector<std::string> comps = {m_cliRoot, m_serverRoot, proot + "/src/www"};
+        for (auto &d : comps)
+        {
+            std::string ex = d + "/.env.example";
+            std::string env = d + "/.env";
+            if (_access(ex.c_str(), 0) == 0 && _access(env.c_str(), 0) != 0)
+            {
+                if (CopyFileA(ex.c_str(), env.c_str(), FALSE))
+                    addSuccess(std::string(TR("log.init")) + "[env] " + d + " -> .env");
+            }
+        }
+    }
+
+    // ===== 6. 验证环境 =====
     addInfo(std::string(TR("log.init")) + TR("env.verify") + "...");
     o.clear();
     c = 0;
@@ -1007,30 +1174,33 @@ void App::startGitClone(const std::string &url, const std::string &dir)
         addWarn("[warn] process running");
         return;
     }
-    addInfo(std::string("[Git] cloning: ") + url);
+    addInfo(std::string("[Git] downloading: ") + url);
     m_gitCloning = true;
     m_procRunning = true;
     if (m_procThread.joinable())
         m_procThread.join();
     m_procThread = std::thread([this, url, dir]()
                                {
-        FILE *t = _popen("git --version 2>&1","r");
-        if (t) { char b[256]; if(fgets(b,sizeof(b),t)){std::string v(b); while(!v.empty()&&(v.back()=='\n'||v.back()=='\r'))v.pop_back(); addInfo(std::string("[Git] ")+v);} _pclose(t); }
-        else { addError("[Git] git not found"); { std::lock_guard<std::mutex> lock(m_stateMutex); m_gitCloning=false; } m_procRunning=false; return; }
-        if (_access(dir.c_str(),0)==0) { addWarn("[Git] removing old..."); system(("cmd /c rmdir /s /q \""+dir+"\"").c_str()); }
-        std::string cmd = "git clone --depth 1 \""+url+"\" \""+dir+"\" 2>&1";
-        FILE *pipe = _popen(cmd.c_str(),"r");
-        if(!pipe){addError("[Git] cannot start"); { std::lock_guard<std::mutex> lock(m_stateMutex); m_gitCloning=false; } m_procRunning=false; return;}
-        char buf[4096];
-        while(fgets(buf,sizeof(buf),pipe)){std::string l(buf); while(!l.empty()&&(l.back()=='\n'||l.back()=='\r'))l.pop_back(); if(!l.empty())addInfo("  "+stripAnsi(l));}
-        int ec=_pclose(pipe);
+        // 删除旧目录（如需覆盖）
+        if (_access(dir.c_str(),0)==0) { addWarn("[Git] removing old..."); std::string oo; int cc=0; execCapture("rmdir /s /q \""+dir+"\"", "", oo, cc); }
+        // 下载 GitHub 归档 zip 并解压到目标目录
+        std::string out; int ec = downloadArchiveZip(url, dir, out);
+        // 按行输出下载/解压日志（错误信息等）
+        {
+            std::string l;
+            for (char ch : out)
+            {
+                if (ch == '\n') { while (!l.empty() && l.back()=='\r') l.pop_back(); if (!l.empty()) addInfo("  "+stripAnsi(l)); l.clear(); }
+                else l += ch;
+            }
+        }
         {
             std::lock_guard<std::mutex> lock(m_stateMutex);
             if(ec==0){ m_projectRoot=dir; m_cliRoot=dir+"/src/cli"; m_serverRoot=dir+"/src/server"; }
             m_gitCloning=false;
         }
-        if(ec==0){addSuccess("[Git] clone success!"); refreshVenvState(); checkPython();}
-        else addError(std::string("[Git] clone failed exit=")+std::to_string(ec));
+        if(ec==0){addSuccess("[Git] download success!"); refreshVenvState(); checkPython();}
+        else addError(std::string("[Git] download failed exit=")+std::to_string(ec));
         m_procRunning=false; });
 }
 
@@ -1082,13 +1252,14 @@ void App::run()
 
     // 窗口关闭前保存配置（此时 g_window 仍然有效）
     // 先显式保存 ImGui 窗口布局（NoAutoSave 下自动保存已禁用）
-    ImGui::SaveIniSettingsToDisk("acui.ini");
+    {
+        std::string iniPath = m_programDir + "/acui.ini";
+        ImGui::SaveIniSettingsToDisk(iniPath.c_str());
+    }
 
     stopProcess();
     if (m_procThread.joinable())
         m_procThread.join();
-    if (m_pingThread.joinable())
-        m_pingThread.join();
     // worker 线程已全部 join，此时读路径等共享成员无竞争
     saveConfig();
     ImGui_ImplOpenGL3_Shutdown();
@@ -1105,7 +1276,7 @@ void App::render()
 {
     ImVec2 vs = ImGui::GetIO().DisplaySize;
     float statusH = 24.0f; // 与状态栏实际高度一致，避免底部露出缝隙
-    float logH = vs.y * 0.4f;
+    float logH = vs.y * m_logRatio;
     float navW = vs.x * 0.25f; // 左侧占 1/4
     float contentX = navW;
     float contentW = vs.x - navW;
@@ -1267,23 +1438,103 @@ void App::renderLaunchPanel()
 // ==================== 工具页 ====================
 void App::renderToolsPanel()
 {
-    beginCard("card_tools", TR("menu.tools"));
+    // 快照项目路径
+    std::string proot, cli, srv;
     {
-        if (ImGui::Checkbox("ImGui Demo", &m_showDemo))
-        {
-            // 切换 demo 窗口
-        }
-        ImGui::Spacing();
-        if (ImGui::Button(TR("menu.refresh"), ImVec2(180, 36)))
-            checkPython();
+        std::lock_guard<std::mutex> lock(m_stateMutex);
+        proot = m_projectRoot;
+        cli = m_cliRoot;
+        srv = m_serverRoot;
     }
-    endCard();
+
+    // 可滚动容器，与启动页一致
+    if (ImGui::BeginChild("ToolsScroll", ImVec2(0, 0), false,
+                          ImGuiWindowFlags_HorizontalScrollbar | ImGuiWindowFlags_NoBackground))
+    {
+        float availW = ImGui::GetContentRegionAvail().x;
+        float gap = ImGui::GetStyle().ItemSpacing.x;
+        float colW = (availW - gap) / 2.0f;
+        if (colW < 240.0f)
+            colW = availW; // 窗口过窄时退化为单列
+
+        // 左列：系统信息 + 通用
+        ImGui::BeginGroup();
+        {
+            beginCard("card_sys", TR("tools.system"), colW);
+            {
+                // CPU 核心数
+                SYSTEM_INFO si;
+                GetSystemInfo(&si);
+                ImGui::TextColored(ImVec4(0.55f, 0.58f, 0.63f, 1.0f), "%s", TR("tools.cpu"));
+                ImGui::SameLine();
+                ImGui::Text("%u", si.dwNumberOfProcessors);
+
+                // 内存使用
+                MEMORYSTATUSEX ms = {};
+                ms.dwLength = sizeof(ms);
+                double memUsed = 0.0, memTotal = 0.0, memPct = 0.0;
+                if (GlobalMemoryStatusEx(&ms))
+                {
+                    memUsed = (double)(ms.ullTotalPhys - ms.ullAvailPhys);
+                    memTotal = (double)ms.ullTotalPhys;
+                    memPct = memTotal > 0.0 ? 100.0 * memUsed / memTotal : 0.0;
+                }
+                ImGui::TextColored(ImVec4(0.55f, 0.58f, 0.63f, 1.0f), "%s", TR("tools.mem"));
+                ImGui::SameLine();
+                ImGui::Text("%s / %s (%.0f%%)", fmtBytes(memUsed).c_str(),
+                            fmtBytes(memTotal).c_str(), memPct);
+
+                // 磁盘剩余（项目所在盘）
+                char root[4] = "C:\\";
+                if (proot.size() >= 2 && proot[1] == ':')
+                    root[0] = proot[0];
+                ULARGE_INTEGER freeB = {}, totalB = {};
+                if (GetDiskFreeSpaceExA(root, &freeB, &totalB, nullptr))
+                {
+                    ImGui::TextColored(ImVec4(0.55f, 0.58f, 0.63f, 1.0f), "%s (%c:)", TR("tools.disk"), root[0]);
+                    ImGui::SameLine();
+                    ImGui::Text("%s / %s", fmtBytes((double)freeB.QuadPart).c_str(),
+                                fmtBytes((double)totalB.QuadPart).c_str());
+                }
+
+                ImGui::Spacing();
+                if (ImGui::Checkbox("ImGui Demo", &m_showDemo))
+                {
+                    // 切换 demo 窗口
+                }
+                ImGui::SameLine();
+                if (ImGui::Button(TR("menu.refresh"), ImVec2(0, 0)))
+                    checkPython();
+            }
+            endCard();
+        }
+        ImGui::EndGroup();
+
+        ImGui::SameLine();
+
+        // 右列：文件夹快捷方式
+        ImGui::BeginGroup();
+        {
+            beginCard("card_folders", TR("tools.folders"), colW);
+            {
+                if (ImGui::Button(TR("tools.open_project"), ImVec2(-1, 36)))
+                    openPath(proot);
+                if (ImGui::Button(TR("tools.open_cli"), ImVec2(-1, 36)))
+                    openPath(cli);
+                if (ImGui::Button(TR("tools.open_srv"), ImVec2(-1, 36)))
+                    openPath(srv);
+            }
+            endCard();
+        }
+        ImGui::EndGroup();
+    }
+    ImGui::EndChild();
 }
 
 // ==================== 设置页（语言 + Git 配置） ====================
 void App::renderSettingsPanel()
 {
-    // 快照跨线程共享状态（worker 克隆完成时会写 m_projectRoot 等）
+    // 快照跨线程共享状态（worker 下载完成时会写 m_projectRoot 等）
     std::string progDir, proot;
     {
         std::lock_guard<std::mutex> lock(m_stateMutex);
@@ -1438,15 +1689,15 @@ void App::renderLogArea()
             // 支持: train / resume / predict / node / verify / menu
             std::string cmd;
             if (c == "train")
-                cmd = "main.py --mode 1";
+                cmd = "main.py train";
             else if (c == "resume")
-                cmd = "main.py --mode 1 --resume auto";
+                cmd = "main.py train --resume";
             else if (c == "predict")
-                cmd = "main.py --mode 2";
+                cmd = "main.py predict";
             else if (c == "node")
-                cmd = "main.py --mode 4";
+                cmd = "main.py node";
             else if (c == "verify")
-                cmd = "main.py --mode 3";
+                cmd = "main.py dataset verify";
             else if (c == "menu")
                 cmd = "main.py";
             else if (c == "server")
@@ -1476,7 +1727,7 @@ void App::renderLogArea()
 // ==================== 状态栏 ====================
 void App::renderStatusBar()
 {
-    // 快照跨线程共享状态，避免与后台线程（克隆/建环境/检测）竞争
+    // 快照跨线程共享状态，避免与后台线程（下载/建环境/检测）竞争
     bool pyOk = false;
     std::string proot;
     {
@@ -1509,7 +1760,7 @@ void App::renderStatusBar()
 // ==================== 环境面板（含 Git 下载） ====================
 void App::renderEnvPanel()
 {
-    // 快照跨线程共享状态，避免与后台线程（克隆/建环境/检测）竞争
+    // 快照跨线程共享状态，避免与后台线程（下载/建环境/检测）竞争
     bool pyOk = false, gitCloning = false;
     std::string pyVer, proot, cli, srv;
     {
@@ -1559,6 +1810,78 @@ void App::renderEnvPanel()
             ImGui::TextColored(ImVec4(0.55f, 0.58f, 0.63f, 1.0f), "%s", TR("env.srv"));
             ImGui::SameLine();
             ImGui::TextWrapped("%s", srv.c_str());
+        }
+        endCard();
+
+        // 环境变量卡片（位于快捷操作左边）：cp .env.example .env 生成环境变量
+        // 37AC 的 .env.example 分别位于 src/cli、src/server、src/www 子目录
+        beginCard("card_env", TR("env.title"), colW);
+        {
+            struct EnvComp
+            {
+                const char *label;
+                std::string dir;
+            };
+            EnvComp comps[] = {
+                {TR("env.comp_cli"), cli},
+                {TR("env.comp_srv"), srv},
+                {TR("env.comp_web"), proot + "/src/www"},
+            };
+
+            for (auto &c : comps)
+            {
+                std::string envFile = c.dir + "/.env";
+                std::string envEx = c.dir + "/.env.example";
+                bool hasEnv = (_access(envFile.c_str(), 0) == 0);
+                bool hasExample = (_access(envEx.c_str(), 0) == 0);
+
+                ImGui::PushID(c.label);
+                // 组件名 + 状态圆点 + .env.example 是否存在
+                ImGui::TextColored(ImVec4(0.30f, 0.45f, 0.60f, 1.0f), "%s", c.label);
+                ImGui::SameLine();
+                drawStatusDot(hasEnv);
+                ImGui::TextUnformatted(hasEnv ? TR("env.env_exists") : TR("env.env_missing"));
+                ImGui::SameLine();
+                drawDot(hasExample ? g_colGreen : g_colRed);
+                ImGui::SameLine();
+                ImGui::TextDisabled("%s", hasExample ? ".env.example" : TR("env.example_missing"));
+
+                // 核心操作：从该组件目录的 .env.example 复制生成 .env（覆盖式）
+                if (ImGui::Button(TR("env.gen"), ImVec2(-1, 30)))
+                {
+                    if (hasExample)
+                    {
+                        if (CopyFileA(envEx.c_str(), envFile.c_str(), FALSE))
+                            addSuccess(std::string(c.label) + " " + TR("env.env_ok"));
+                        else
+                            addError(std::string(c.label) + " " + TR("env.env_fail"));
+                    }
+                    else
+                        addError(std::string(c.label) + " " + TR("env.env_fail"));
+                }
+
+                // 打开 .env / 打开示例（记事本，不存在则新建）
+                float bw2 = (ImGui::GetContentRegionAvail().x - gap) / 2.0f;
+                if (ImGui::Button(TR("env.open_env"), ImVec2(bw2, 28)))
+                    openTextFile(envFile);
+                ImGui::SameLine();
+                if (ImGui::Button(TR("env.open_example"), ImVec2(bw2, 28)))
+                    openTextFile(envEx);
+
+                // 删除 .env（仅存在时）
+                if (hasEnv)
+                {
+                    if (ImGui::Button(TR("env.del_env"), ImVec2(-1, 28)))
+                    {
+                        if (DeleteFileA(envFile.c_str()))
+                            addSuccess(std::string(c.label) + " " + TR("env.env_del"));
+                        else
+                            addError(std::string(c.label) + " " + TR("env.env_del_fail"));
+                    }
+                }
+                ImGui::PopID();
+                ImGui::Spacing();
+            }
         }
         endCard();
     }
@@ -1613,7 +1936,7 @@ void App::renderEnvPanel()
         beginCard("card_actions", TR("env.actions"), colW);
         {
             float bw = (ImGui::GetContentRegionAvail().x - gap) / 2.0f;
-            // 卡片最上方：一键初始化（克隆→检查→创建环境→安装依赖→验证环境）
+            // 卡片最上方：一键初始化（下载→检查→创建环境→安装依赖→验证环境）主色强调
             if (ImGui::Button(TR("env.init"), ImVec2(-1, 36)))
                 startInitProject();
             ImGui::Spacing();
@@ -1647,36 +1970,9 @@ void App::renderServerPanel()
 {
     beginCard("card_srv", TR("srv.title"));
     {
-        // 状态行：圆点 + 状态文字
-        drawDot(m_serverStatus == 1 ? g_colGreen : (m_serverStatus == 0 ? g_colRed : g_colGray));
-        if (m_serverStatus == 1)
-            ImGui::TextColored(ImVec4(0.11f, 0.41f, 0.33f, 1.0f), "%s", TR("srv.on"));
-        else if (m_serverStatus == 0)
-            ImGui::TextColored(ImVec4(0.72f, 0.41f, 0.42f, 1.0f), "%s", TR("srv.off"));
-        else
-            ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f), "%s", TR("srv.unknown"));
-        ImGui::Spacing();
-
         if (ImGui::Button(TR("srv.start"), ImVec2(-1, 40)))
             startProcess("start server", "runserver.py", m_serverRoot);
-        float bw = (ImGui::GetContentRegionAvail().x - ImGui::GetStyle().ItemSpacing.x) / 2.0f;
-        if (ImGui::Button(TR("srv.check"), ImVec2(bw, 36)))
-        {
-            // 异步检查：WinHTTP 超时最长 10s，同步调用会卡死 UI
-            if (m_pingThread.joinable())
-                m_pingThread.join(); // 上一次检查未结束时等待（最多数秒）
-            addInfo("[server] checking...");
-            m_pingThread = std::thread([this]()
-                                       {
-                bool ok = m_http.ping();
-                m_serverStatus = ok ? 1 : 0;
-                if (ok)
-                    addSuccess(TR("srv.online"));
-                else
-                    addWarn(TR("srv.offline")); });
-        }
-        ImGui::SameLine();
-        if (ImGui::Button(TR("srv.api"), ImVec2(bw, 36)))
+        if (ImGui::Button(TR("srv.api"), ImVec2(-1, 36)))
             ShellExecuteA(0, "open", "http://127.0.0.1:13138/upload", 0, 0, SW_SHOW);
     }
     endCard();
@@ -1691,12 +1987,15 @@ void App::renderCliPanel()
     {
         float bw = (ImGui::GetContentRegionAvail().x - gap) / 2.0f;
         if (ImGui::Button(TR("cli.btn_train"), ImVec2(bw, 40)))
-            startProcess("train", "main.py --mode 1", m_cliRoot);
+            startProcess("train", "main.py train", m_cliRoot);
         ImGui::SameLine();
         if (ImGui::Button(TR("cli.btn_resume"), ImVec2(bw, 40)))
-            startProcess("resume", "main.py --mode 1 --resume auto", m_cliRoot);
-        if (ImGui::Button(TR("cli.btn_predict"), ImVec2(-1, 40)))
-            startProcess("predict", "main.py --mode 2", m_cliRoot);
+            startProcess("resume", "main.py train --resume", m_cliRoot);
+        if (ImGui::Button(TR("cli.btn_predict"), ImVec2(bw, 40)))
+            startProcess("predict", "main.py predict", m_cliRoot);
+        ImGui::SameLine();
+        if (ImGui::Button(TR("cli.btn_predict_llm"), ImVec2(bw, 40)))
+            startProcess("predict-llm", "main.py predict --llm", m_cliRoot);
     }
     endCard();
 
@@ -1704,10 +2003,10 @@ void App::renderCliPanel()
     {
         float bw = (ImGui::GetContentRegionAvail().x - gap) / 2.0f;
         if (ImGui::Button(TR("cli.btn_node"), ImVec2(bw, 40)))
-            startProcess("node", "main.py --mode 4", m_cliRoot);
+            startProcess("node", "main.py node", m_cliRoot);
         ImGui::SameLine();
         if (ImGui::Button(TR("cli.btn_verify"), ImVec2(bw, 40)))
-            startProcess("verify", "main.py --mode 3", m_cliRoot);
+            startProcess("verify", "main.py dataset verify", m_cliRoot);
         if (ImGui::Button(TR("cli.btn_menu"), ImVec2(-1, 40)))
             startProcess("menu", "main.py", m_cliRoot);
     }

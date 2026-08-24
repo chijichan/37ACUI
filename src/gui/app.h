@@ -40,7 +40,7 @@ public:
     bool isProcRunning() const { return m_procRunning; }
 
     void startGitClone(const std::string &repoUrl, const std::string &targetDir);
-    void startInitProject(); // 一键初始化：克隆→检查→创建环境→安装依赖→验证环境
+    void startInitProject(); // 一键初始化：下载→检查→创建环境→安装依赖→验证环境
 
 private:
     void render();
@@ -79,20 +79,19 @@ private:
     std::string m_pythonVersion;
     std::atomic<bool> m_procRunning{false};
     std::thread m_procThread;
-    std::thread m_pingThread; // 服务端状态检查线程（避免同步 HTTP 阻塞 UI）
     ConsoleWidget m_console;
     std::mutex m_procStdinMutex; // 保护 m_procStdinWrite：主线程（发送/停止）与 worker 线程（设置/清理）并发
     void *m_procStdinWrite = nullptr;
     std::mutex m_stateMutex; // 保护跨线程共享的状态成员：路径、Python 状态、venv/Git 状态
-    std::atomic<int> m_serverStatus{-1};
     std::atomic<unsigned long> m_procPid{0}; // 当前子进程 PID（0 = 无），用于精确终止进程
     std::atomic<bool> m_uiDirty{true};       // UI 需要重绘（后台线程日志/状态更新时置位）
     ImFont *m_bigFont = nullptr;             // 大字号 Logo 字体
     ImFont *m_titleFont = nullptr;           // 卡片标题字体（加粗、略大）
     ImFont *m_monoFont = nullptr;            // 控制台等宽字体
-    char m_gitUrl[256] = "https://github.com/chijichan/37AC.git";
+    char m_gitUrl[256] = "https://github.com/chijichan/37AC/archive/refs/heads/master.zip";
     bool m_gitCloning = false;
     int m_winX = 100, m_winY = 50, m_winW = 1280, m_winH = 800;
     bool m_venvExists = false; // .venv 是否存在（缓存，避免每帧 _access 造成持续磁盘 IO）
     bool m_autoScroll = true;  // 控制台自动滚动到底部
+    float m_logRatio = 0.36f;  // 控制台高度占窗口比例（默认 36%，可拖拽分隔条调整）
 };

@@ -42,9 +42,6 @@ public:
     void postAsync(const std::string &path, const std::string &jsonBody,
                    std::function<void(const HttpResult &)> callback);
 
-    // 检查服务端是否在线
-    bool ping();
-
 private:
     HttpResult request(const std::string &method, const std::string &path,
                        const std::string &body = "");

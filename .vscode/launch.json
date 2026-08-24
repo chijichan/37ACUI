@@ -14,7 +14,7 @@
             "preLaunchTask": "CMake: 构建 (Debug)"
         },
         {
-            "name": "(CMake) 构建并调试 (Release with PDB)",
+            "name": "(CMake) 构建并调试 (Release)",
             "type": "cppvsdbg",
             "request": "launch",
             "program": "${workspaceFolder}/build/Release/ACUI.exe",

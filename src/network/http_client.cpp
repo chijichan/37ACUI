@@ -222,9 +222,3 @@ void HttpClient::postAsync(const std::string &path, const std::string &jsonBody,
         callback(result); })
         .detach();
 }
-
-bool HttpClient::ping()
-{
-    auto result = get("/dashboard/overview");
-    return result.ok();
-}

@@ -6,9 +6,9 @@
 
 | 标签页 | 功能 |
 |--------|------|
-| **Git** | 从 GitHub 克隆 37AC 项目、选择目标目录、检查目录状态 |
+| **Git** | 从 GitHub 下载 37AC 源码包（zip）、选择目标目录、检查目录状态 |
 | **环境** | 检测 Python 环境、安装 CLI/服务端依赖、创建虚拟环境、验证环境完整性 |
-| **服务端** | 启动/停止 Flask 服务端、检查运行状态、快捷打开 Web 前端和 API 页面 |
+| **服务端** | 启动/停止 Flask 服务端、快捷打开 Web 前端和 API 页面 |
 | **CLI** | 模型训练/继续训练、角色预测、节点服务、图像验证、交互菜单 |
 | **控制台** | 实时显示所有操作的输出日志，支持命令行输入和进程交互 |
 
@@ -28,7 +28,7 @@
 - **Visual Studio 2022** (含"使用 C++ 的桌面开发"工作负载)
 - **CMake** 3.16+
 - **vcpkg** (用于安装 GLFW3)
-- **Git** (用于克隆 37AC 项目)
+- **Git** (可选，不再需要：程序使用 Windows 自带的 `curl` + `tar` 直接下载 GitHub 归档 zip 并解压)
 
 ### 安装依赖
 
@@ -65,7 +65,7 @@ build.bat clean
 ## 使用说明
 
 1. 启动 `ACUI.exe`，程序会自动检测 37AC 项目的 Python 虚拟环境
-2. 如果尚未下载 37AC，在 **Git** 标签页输入仓库 URL 和目标目录进行克隆
+2. 如果尚未下载 37AC，在 **Git** 标签页输入源码包下载地址和目标目录进行下载
 3. 在 **环境** 标签页安装依赖、创建虚拟环境
 4. 在 **服务端** 标签页管理 Flask 后端服务
 5. 在 **CLI** 标签页进行模型训练、预测等操作
@@ -123,4 +123,25 @@ build.bat clean
 
 ## 许可证
 
-本项目仅用于学习和研究目的。
+本项目采用 **GPL-3.0**（GNU General Public License v3）开源协议。
+
+```text
+Copyright (C) 2026 37ACUI Contributors
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program.  If not, see <https://www.gnu.org/licenses/>.
+```
+
+完整协议文本见 [LICENSE](LICENSE)。
+
+> **说明**：内置的第三方依赖 **Dear ImGui**（MIT License）与 **ImPlot**（MIT License）保留其各自许可证，MIT 与 GPL-3.0 兼容；其所依赖的 37AC 项目遵循其自身的许可证。

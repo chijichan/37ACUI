@@ -6,7 +6,7 @@
 
 ; ---- 预处理器常量（可通过 iscc /Dxxx=yyy 覆盖）----
 #ifndef AppVersion
-  #define AppVersion "0.0.1"
+  #define AppVersion "0.0.2"
 #endif
 #ifndef AppId
   #define AppId "{{6E5F7A93-2B4C-4D8E-9F1A-3C7D5E9B2A41}"
@@ -74,8 +74,6 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 ; ---- 主程序与运行时依赖 ----
 Source: "{#BuildDir}\{#BuildConfig}\ACUI.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#BuildDir}\{#BuildConfig}\glfw3.dll"; DestDir: "{app}"; Flags: ignoreversion
-; ---- 默认 ImGui 窗口布局（用户设置 acui_settings.ini 由程序运行时生成，不打包）----
-Source: "acui.ini"; DestDir: "{app}"; Flags: ignoreversion
 ; ---- 文档 ----
 Source: "LICENSE"; DestDir: "{app}"; Flags: ignoreversion
 Source: "README.md"; DestDir: "{app}"; Flags: ignoreversion isreadme

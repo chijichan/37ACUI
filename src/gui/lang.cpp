@@ -57,11 +57,11 @@ LangSys::LangSys()
 
     // Git
     m_data["git.title"] = {"GitHub 下载", "GitHub download"};
-    m_data["git.url"] = {"Git URL:", "Git URL:"};
+    m_data["git.url"] = {"下载地址:", "Download URL:"};
     m_data["git.dir"] = {"项目目录:", "Target dir:"};
-    m_data["git.clone"] = {"克隆 37AC", "Clone 37AC"};
+    m_data["git.clone"] = {"下载 37AC", "Download 37AC"};
     m_data["git.check"] = {"检查目录", "Check dir"};
-    m_data["git.cloning"] = {"正在克隆...", "cloning..."};
+    m_data["git.cloning"] = {"正在下载...", "downloading..."};
     m_data["git.browse"] = {"浏览...", "Browse..."};
     m_data["git.fill"] = {"请填写 URL 和目录", "fill in URL and dir"};
     m_data["git.exists"] = {"目录已存在", "dir exists"};
@@ -79,10 +79,27 @@ LangSys::LangSys()
     m_data["env.cli"] = {"CLI:", "CLI:"};
     m_data["env.srv"] = {"服务端:", "server:"};
     m_data["env.actions"] = {"快捷操作", "Quick actions"};
+    m_data["env.title"] = {"环境变量", "Env vars"};
+    m_data["env.env_exists"] = {".env 已存在", ".env exists"};
+    m_data["env.env_missing"] = {".env 未创建", ".env missing"};
+    m_data["env.example_exists"] = {".env.example 存在", ".env.example exists"};
+    m_data["env.example_missing"] = {"缺少 .env.example", "missing .env.example"};
+    m_data["env.create_from"] = {"从示例生成 .env", "Create .env from example"};
+    m_data["env.gen"] = {"从示例生成 .env", "Create .env"};
+    m_data["env.comp_cli"] = {"CLI", "CLI"};
+    m_data["env.comp_srv"] = {"服务端", "Server"};
+    m_data["env.comp_web"] = {"Web 前端", "Web"};
+    m_data["env.open_env"] = {"打开 .env", "Open .env"};
+    m_data["env.open_example"] = {"打开示例", "Open example"};
+    m_data["env.del_env"] = {"删除 .env", "Delete .env"};
+    m_data["env.env_ok"] = {"[env] 已从示例生成 .env", "[env] .env created from example"};
+    m_data["env.env_fail"] = {"[env] 生成失败：缺少 .env.example", "[env] failed: missing .env.example"};
+    m_data["env.env_del"] = {"[env] 已删除 .env", "[env] .env deleted"};
+    m_data["env.env_del_fail"] = {"[env] 删除 .env 失败", "[env] delete .env failed"};
     m_data["env.init"] = {"初始化项目", "Init project"};
     m_data["env.init_start"] = {"开始初始化项目...", "starting project init..."};
-    m_data["env.init_clone_done"] = {"克隆完成", "clone done"};
-    m_data["env.init_clone_fail"] = {"克隆失败 exit=", "clone failed exit="};
+    m_data["env.init_clone_done"] = {"下载完成", "download done"};
+    m_data["env.init_clone_fail"] = {"下载失败 exit=", "download failed exit="};
     m_data["env.init_missing_dirs"] = {"注意: src/cli 或 src/server 不存在，依赖安装可能失败", "warning: src/cli or src/server missing, deps install may fail"};
     m_data["env.init_dirs_ok"] = {"目录检查通过", "directory check passed"};
     m_data["env.init_cli_fail"] = {"CLI 依赖安装失败", "CLI deps install failed"};
@@ -90,6 +107,7 @@ LangSys::LangSys()
     m_data["env.init_srv_fail"] = {"服务端依赖安装失败", "server deps install failed"};
     m_data["env.init_srv_ok"] = {"服务端依赖安装完成", "server deps installed"};
     m_data["env.init_verify_warn"] = {"verify_env.py 未通过或不存在，可手动点击「验证环境」检查", "verify_env.py not passed or missing, click 'Verify env' to check"};
+    m_data["env.init_env"] = {"生成环境变量文件 (.env)", "Create env files (.env)"};
     m_data["env.init_done"] = {"初始化完成！", "project initialized!"};
     m_data["log.init"] = {"[init] ", "[init] "};
     m_data["log.pip"] = {"[pip] ", "[pip] "};
@@ -106,14 +124,8 @@ LangSys::LangSys()
     m_data["env.venv_perm"] = {"[venv] 权限被拒绝：.venv 可能被运行中的 Python 进程占用或文件被锁定。请先停止运行中的进程，再点击“删除并重建”重试", "[venv] Permission denied: .venv may be in use by a running Python process or files are locked. Stop running processes, then click 'Delete & recreate'"};
 
     // Server
-    m_data["srv.title"] = {"服务端状态", "Server status"};
-    m_data["srv.on"] = {"运行中", "running"};
-    m_data["srv.off"] = {"未运行", "not running"};
-    m_data["srv.unknown"] = {"未检测", "not checked"};
+    m_data["srv.title"] = {"服务端", "Server"};
     m_data["srv.start"] = {"启动服务端", "Start server"};
-    m_data["srv.check"] = {"检查状态", "Check status"};
-    m_data["srv.online"] = {"[server] 在线", "[server] online"};
-    m_data["srv.offline"] = {"[server] 离线", "[server] offline"};
     m_data["srv.links"] = {"快捷链接", "Links"};
     m_data["srv.web"] = {"打开 Web 前端", "Web frontend"};
     m_data["srv.api"] = {"API 测试", "API test"};
@@ -123,10 +135,21 @@ LangSys::LangSys()
     m_data["cli.btn_train"] = {"开始训练", "Train"};
     m_data["cli.btn_resume"] = {"继续训练", "Resume"};
     m_data["cli.btn_predict"] = {"预测角色", "Predict"};
+    m_data["cli.btn_predict_llm"] = {"LLM 预测", "Predict (LLM)"};
     m_data["cli.node"] = {"节点与工具", "Node & Tools"};
     m_data["cli.btn_node"] = {"启动节点", "Node"};
     m_data["cli.btn_verify"] = {"验证图像", "Verify"};
     m_data["cli.btn_menu"] = {"交互菜单", "Menu"};
+
+    // Tools
+    m_data["tools.system"] = {"系统信息", "System info"};
+    m_data["tools.cpu"] = {"CPU 核心:", "CPU cores:"};
+    m_data["tools.mem"] = {"内存:", "Memory:"};
+    m_data["tools.disk"] = {"磁盘剩余", "Disk free"};
+    m_data["tools.folders"] = {"打开目录", "Folders"};
+    m_data["tools.open_project"] = {"打开项目目录", "Open project dir"};
+    m_data["tools.open_cli"] = {"打开 CLI 目录", "Open CLI dir"};
+    m_data["tools.open_srv"] = {"打开服务端目录", "Open server dir"};
 
     // Log tags
     m_data["log.start"] = {"[start] ", "[start] "};
