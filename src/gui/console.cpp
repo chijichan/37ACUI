@@ -128,6 +128,7 @@ void ConsoleWidget::Draw(const char *title, ImVec2 size, bool hasInput,
     const ImVec4 darkBg(0.105f, 0.115f, 0.135f, 1.00f);
     const ImVec4 darkBgActive(0.135f, 0.145f, 0.165f, 1.00f);
     const ImVec4 lightText(0.88f, 0.91f, 0.95f, 1.00f);
+    const ImVec4 cursorWhite(1.00f, 1.00f, 1.00f, 1.00f); // 脱字符（输入光标）白色，便于在深色底上辨识
 
     // 用 BeginChild 包裹确保 InputTextMultiline 占满可用区域
     // 注意：不能加 ImGuiWindowFlags_HorizontalScrollbar——水平滚动会禁用换行，
@@ -139,6 +140,7 @@ void ConsoleWidget::Draw(const char *title, ImVec2 size, bool hasInput,
     ImGui::PushStyleColor(ImGuiCol_FrameBgHovered, darkBgActive);
     ImGui::PushStyleColor(ImGuiCol_FrameBgActive, darkBgActive);
     ImGui::PushStyleColor(ImGuiCol_Text, lightText);
+    ImGui::PushStyleColor(ImGuiCol_InputTextCursor, cursorWhite); // 脱字符白色
     if (monoFont)
         ImGui::PushFont(monoFont); // 等宽字体，更接近专业终端
 
@@ -190,7 +192,7 @@ void ConsoleWidget::Draw(const char *title, ImVec2 size, bool hasInput,
 
     if (monoFont)
         ImGui::PopFont();
-    ImGui::PopStyleColor(4);
+    ImGui::PopStyleColor(5);
 
     ImGui::EndChild();
 
@@ -206,6 +208,7 @@ void ConsoleWidget::Draw(const char *title, ImVec2 size, bool hasInput,
         ImGui::PushStyleColor(ImGuiCol_FrameBgHovered, darkBgActive);
         ImGui::PushStyleColor(ImGuiCol_FrameBgActive, darkBgActive);
         ImGui::PushStyleColor(ImGuiCol_Text, lightText);
+        ImGui::PushStyleColor(ImGuiCol_InputTextCursor, cursorWhite); // 脱字符白色
         if (monoFont)
             ImGui::PushFont(monoFont);
         ImGuiInputTextFlags flags = ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_CallbackHistory;
@@ -225,7 +228,7 @@ void ConsoleWidget::Draw(const char *title, ImVec2 size, bool hasInput,
         }
         if (monoFont)
             ImGui::PopFont();
-        ImGui::PopStyleColor(4);
+        ImGui::PopStyleColor(5);
         ImGui::PopItemWidth();
 
         ImGui::SameLine();
