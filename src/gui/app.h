@@ -42,6 +42,18 @@ public:
     void startGitClone(const std::string &repoUrl, const std::string &targetDir);
     void startInitProject(); // 一键初始化：下载→检查→创建环境→安装依赖→验证环境
 
+    // 当前运行进程名（受 m_stateMutex 保护）
+    void setProcName(const std::string &name)
+    {
+        std::lock_guard<std::mutex> lock(m_stateMutex);
+        m_procName = name;
+    }
+    std::string getProcName()
+    {
+        std::lock_guard<std::mutex> lock(m_stateMutex);
+        return m_procName;
+    }
+
 private:
     void render();
     void renderSideNav();     // 左侧导航栏
@@ -84,6 +96,7 @@ private:
     void *m_procStdinWrite = nullptr;
     std::mutex m_stateMutex; // 保护跨线程共享的状态成员：路径、Python 状态、venv/Git 状态
     std::atomic<unsigned long> m_procPid{0}; // 当前子进程 PID（0 = 无），用于精确终止进程
+    std::string m_procName;                  // 当前运行进程名（受 m_stateMutex 保护）
     std::atomic<bool> m_uiDirty{true};       // UI 需要重绘（后台线程日志/状态更新时置位）
     ImFont *m_bigFont = nullptr;             // 大字号 Logo 字体
     ImFont *m_titleFont = nullptr;           // 卡片标题字体（加粗、略大）

@@ -17,6 +17,17 @@
 #include <shlobj.h>
 
 static GLFWwindow *g_window = nullptr;
+static App *g_app = nullptr; // 供 GLFW 回调触发补帧渲染
+
+static void glfw_framebuffer_size_callback(GLFWwindow *, int w, int h)
+{
+    // 拖拽调整窗口大小时，主循环会被 Windows 的模态缩放循环阻塞而无法重绘；
+    // 这里直接在回调中补渲染一帧，实现“边拖边刷新”。
+    // 回调运行在同一线程的消息处理内，而 renderFrame 不会泵消息，因此无重入风险。
+    if (w > 0 && h > 0 && g_app)
+        g_app->renderFrame();
+    glfwPostEmptyEvent(); // 唤醒可能阻塞在 glfwWaitEvents 的主循环
+}
 
 // 从 .exe 内嵌资源加载图标并设置为 GLFW 窗口图标（任务栏 + 标题栏）
 static void setWindowIcon()
@@ -324,6 +335,16 @@ static void drawTag(const char *text, const ImVec4 &bg, const ImVec4 &fg)
     ImGui::SameLine();
 }
 
+// 主操作按钮样式：蓝色强调 + 白字
+static void pushPrimaryButton()
+{
+    ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.15f, 0.50f, 0.95f, 1.00f));
+    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.25f, 0.58f, 1.00f, 1.00f));
+    ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.10f, 0.40f, 0.85f, 1.00f));
+    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.00f, 1.00f, 1.00f, 1.00f));
+}
+static void popPrimaryButton() { ImGui::PopStyleColor(4); }
+
 // 导航项：选中时蓝色背景 + 白色文字 + 左侧亮色高亮条；悬停时稍浅蓝 + 白字
 static bool navItem(const char *label, bool selected)
 {
@@ -557,6 +578,9 @@ bool App::init(const char *title, int width, int height)
     if (!g_window)
         return false;
 
+    // 尺寸变化时标记需要重绘（防止 resize 后黑色区域）
+    glfwSetFramebufferSizeCallback(g_window, glfw_framebuffer_size_callback);
+
     glfwMakeContextCurrent(g_window);
     glfwSwapInterval(1);
 
@@ -712,6 +736,7 @@ bool App::init(const char *title, int width, int height)
     else
         addWarn(std::string("Python not found"));
 
+    g_app = this; // ImGui 后端初始化完成后才允许回调补帧
     return true;
 }
 
@@ -825,6 +850,7 @@ void App::createVenv(bool recreate)
 
 void App::venvThreadFunc(bool recreate)
 {
+    setProcName("create venv");
     // 快照项目根路径：本线程全程使用局部副本，避免与主线程设置页编辑竞争
     std::string proot;
     {
@@ -863,6 +889,7 @@ void App::venvThreadFunc(bool recreate)
             addError(std::string(TR("env.venv_perm")));
     }
     refreshVenvState(); // venv 创建/删除后立即刷新缓存
+    setProcName("");
     m_procRunning = false;
 }
 
@@ -885,6 +912,7 @@ void App::startInitProject()
 
 void App::initProjectThreadFunc(const std::string &url)
 {
+    setProcName("init project");
     std::string o;
     int c = 0;
     // 快照项目根路径：本线程全程使用局部副本，避免与主线程设置页编辑竞争
@@ -1016,6 +1044,7 @@ void App::initProjectThreadFunc(const std::string &url)
     checkPython();
 
     addSuccess(std::string(TR("log.init")) + TR("env.init_done"));
+    setProcName("");
     m_procRunning = false;
 }
 
@@ -1127,6 +1156,7 @@ void App::procThreadFunc(const std::string &name, const std::string &cmd,
         addError(std::string("[done] ") + name + " exit=" + std::to_string(ec));
     // 进程自然结束时关闭 stdin 写端句柄（若未被 stopProcess 提前关闭）
     closeProcStdin();
+    setProcName("");
     m_procRunning = false;
     m_procPid = 0;
 }
@@ -1140,6 +1170,7 @@ void App::startProcess(const std::string &name, const std::string &cmd,
         return;
     }
     closeProcStdin(); // 清理可能残留的旧句柄
+    setProcName(name);
     m_procRunning = true;
     if (m_procThread.joinable())
         m_procThread.join();
@@ -1152,6 +1183,7 @@ void App::stopProcess()
         return;
     addWarn("[warn] terminating...");
     m_procRunning = false;
+    setProcName("");
     closeProcStdin();
     // 只终止自己启动的子进程（按 PID），不再 taskkill 系统上所有 python.exe
     unsigned long pid = m_procPid.load();
@@ -1175,6 +1207,7 @@ void App::startGitClone(const std::string &url, const std::string &dir)
         return;
     }
     addInfo(std::string("[Git] downloading: ") + url);
+    setProcName("download 37AC");
     m_gitCloning = true;
     m_procRunning = true;
     if (m_procThread.joinable())
@@ -1201,6 +1234,7 @@ void App::startGitClone(const std::string &url, const std::string &dir)
         }
         if(ec==0){addSuccess("[Git] download success!"); refreshVenvState(); checkPython();}
         else addError(std::string("[Git] download failed exit=")+std::to_string(ec));
+        setProcName("");
         m_procRunning=false; });
 }
 
@@ -1275,9 +1309,10 @@ void App::run()
 void App::render()
 {
     ImVec2 vs = ImGui::GetIO().DisplaySize;
-    float statusH = 24.0f; // 与状态栏实际高度一致，避免底部露出缝隙
+    const float NAV_WIDTH = 200.0f; // 左侧导航栏固定宽度
+    float statusH = 24.0f;          // 与状态栏实际高度一致，避免底部露出缝隙
     float logH = vs.y * m_logRatio;
-    float navW = vs.x * 0.25f; // 左侧占 1/4
+    float navW = NAV_WIDTH;
     float contentX = navW;
     float contentW = vs.x - navW;
     float contentH = vs.y - statusH - logH;
@@ -1325,22 +1360,8 @@ void App::render()
 // ==================== 左侧导航栏 ====================
 void App::renderSideNav()
 {
-    // 计算导航内容总高度，实现垂直居中
-    float contentH = ImGui::GetWindowHeight();
-    // ImGui 1.92+: ImFont::FontSize 已移除，LegacySize = AddFontFromFileTTF 传入的加载大小
-    float logoH = (m_bigFont ? m_bigFont->LegacySize : ImGui::GetTextLineHeightWithSpacing()) + 16.0f;
-    float sepH = 8;
-    float navH = 36.0f * 3 + ImGui::GetStyle().ItemSpacing.y * 3; // 3 个按钮
-    float bottomSpacing = 20;
-    float exitH = 36.0f;
-    float total = logoH + sepH + navH + bottomSpacing + sepH + exitH;
-
-    // 顶部留白（垂直居中）
-    float topPad = (contentH - total) / 2.0f;
-    if (topPad > 0)
-        ImGui::Dummy(ImVec2(0, topPad));
-
-    // Logo（大字号字体 + 左右居中）
+    // 顶部 Logo（大字号字体 + 左右居中）
+    ImGui::Dummy(ImVec2(0, 16));
     if (m_bigFont)
         ImGui::PushFont(m_bigFont);
     float logoW = ImGui::CalcTextSize("37ACUI").x;
@@ -1351,10 +1372,9 @@ void App::renderSideNav()
     ImGui::PopStyleColor();
     if (m_bigFont)
         ImGui::PopFont();
-    ImGui::Spacing();
-    ImGui::Spacing();
+    ImGui::Dummy(ImVec2(0, 24));
 
-    // 导航按钮（选中：浅蓝背景 + 左侧亮色竖线）
+    // 导航按钮（顶部对齐）
     const char *navItems[] = {TR("nav.launch"), TR("nav.tools"), TR("nav.settings")};
     for (int i = 0; i < 3; i++)
     {
@@ -1363,13 +1383,10 @@ void App::renderSideNav()
         ImGui::Spacing();
     }
 
-    // 底部：退出按钮
-    ImGui::Spacing();
+    // 用 Spacer 把退出按钮推到底部
+    ImGui::SetCursorPosY(ImGui::GetWindowHeight() - 60);
     ImGui::Separator();
     ImGui::Spacing();
-    ImGui::Spacing();
-    ImGui::Spacing();
-
     if (navExitItem(TR("nav.exit")))
         glfwSetWindowShouldClose(g_window, true);
 }
@@ -1711,8 +1728,11 @@ void App::renderLogArea()
         }
     };
     // 进程状态 + 停止按钮放在指令提示前（运行中橙色 / 空闲灰色）
+    std::string procName = getProcName();
     std::string statusText = std::string(TR("nav.status")) +
                              (m_procRunning ? TR("nav.running") : TR("nav.idle"));
+    if (m_procRunning && !procName.empty())
+        statusText += " [" + procName + "]";
     ImU32 statusColor = m_procRunning ? IM_COL32(255, 166, 0, 255) : IM_COL32(150, 160, 172, 255);
     // 仅在进程运行时提供停止按钮
     std::function<void()> onStop;
@@ -1729,11 +1749,12 @@ void App::renderStatusBar()
 {
     // 快照跨线程共享状态，避免与后台线程（下载/建环境/检测）竞争
     bool pyOk = false;
-    std::string proot;
+    std::string proot, procName;
     {
         std::lock_guard<std::mutex> lock(m_stateMutex);
         pyOk = m_pythonOk;
         proot = m_projectRoot;
+        procName = m_procName;
     }
 
     ImVec2 vs = ImGui::GetIO().DisplaySize;
@@ -1753,6 +1774,13 @@ void App::renderStatusBar()
         ImGui::TextColored(ImVec4(0.72f, 0.41f, 0.42f, 1), "%s", TR("status.python_no"));
     ImGui::SameLine();
     ImGui::Text("%s %s", TR("status.project"), proot.c_str());
+
+    // 当前运行进程名（弥补去掉 server 状态后的反馈缺失）
+    if (!procName.empty())
+    {
+        ImGui::SameLine();
+        ImGui::TextColored(ImVec4(1.00f, 0.65f, 0.00f, 1.00f), "[%s]", procName.c_str());
+    }
 
     ImGui::End();
 }
@@ -1937,8 +1965,10 @@ void App::renderEnvPanel()
         {
             float bw = (ImGui::GetContentRegionAvail().x - gap) / 2.0f;
             // 卡片最上方：一键初始化（下载→检查→创建环境→安装依赖→验证环境）主色强调
+            pushPrimaryButton();
             if (ImGui::Button(TR("env.init"), ImVec2(-1, 36)))
                 startInitProject();
+            popPrimaryButton();
             ImGui::Spacing();
 
             // 中间一行：创建环境（左）+ 验证环境（右）
@@ -1970,8 +2000,10 @@ void App::renderServerPanel()
 {
     beginCard("card_srv", TR("srv.title"));
     {
+        pushPrimaryButton();
         if (ImGui::Button(TR("srv.start"), ImVec2(-1, 40)))
             startProcess("start server", "runserver.py", m_serverRoot);
+        popPrimaryButton();
         if (ImGui::Button(TR("srv.api"), ImVec2(-1, 36)))
             ShellExecuteA(0, "open", "http://127.0.0.1:13138/upload", 0, 0, SW_SHOW);
     }
@@ -1986,9 +2018,11 @@ void App::renderCliPanel()
     beginCard("card_cli_train", TR("cli.train"));
     {
         float bw = (ImGui::GetContentRegionAvail().x - gap) / 2.0f;
+        pushPrimaryButton();
         if (ImGui::Button(TR("cli.btn_train"), ImVec2(bw, 40)))
             startProcess("train", "main.py train", m_cliRoot);
         ImGui::SameLine();
+        popPrimaryButton();
         if (ImGui::Button(TR("cli.btn_resume"), ImVec2(bw, 40)))
             startProcess("resume", "main.py train --resume", m_cliRoot);
         if (ImGui::Button(TR("cli.btn_predict"), ImVec2(bw, 40)))
@@ -2002,9 +2036,11 @@ void App::renderCliPanel()
     beginCard("card_cli_node", TR("cli.node"));
     {
         float bw = (ImGui::GetContentRegionAvail().x - gap) / 2.0f;
+        pushPrimaryButton();
         if (ImGui::Button(TR("cli.btn_node"), ImVec2(bw, 40)))
             startProcess("node", "main.py node", m_cliRoot);
         ImGui::SameLine();
+        popPrimaryButton();
         if (ImGui::Button(TR("cli.btn_verify"), ImVec2(bw, 40)))
             startProcess("verify", "main.py dataset verify", m_cliRoot);
         if (ImGui::Button(TR("cli.btn_menu"), ImVec2(-1, 40)))
