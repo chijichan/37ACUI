@@ -70,8 +70,13 @@ set(IMPLOT_SOURCES
 set(ACUI_SOURCES
     src/main.cpp
     src/gui/app.cpp
+    src/gui/pages.cpp
     src/gui/console.cpp
     src/gui/lang.cpp
+    src/gui/theme.cpp
+    src/gui/components.cpp
+    src/gui/bridge.cpp
+    src/gui/tray.cpp
     src/network/http_client.cpp
 )
 
@@ -79,9 +84,10 @@ set(ACUI_HEADERS
     src/gui/app.h
     src/gui/console.h
     src/gui/lang.h
-    src/gui/panel_env.h
-    src/gui/panel_server.h
-    src/gui/panel_cli.h
+    src/gui/theme.h
+    src/gui/components.h
+    src/gui/bridge.h
+    src/gui/tray.h
     src/network/http_client.h
 )
 
@@ -147,9 +153,9 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
     ${OPENGL_LIBRARIES}
 )
 
-# Windows 子系统依赖（ws2_32 已随服务端状态检测移除，不再需要）
+# Windows 系统库：winmm（计时）+ ws2_32（本机端口探测：服务端/节点在线状态）
 if(WIN32)
-    target_link_libraries(${PROJECT_NAME} PRIVATE winmm)
+    target_link_libraries(${PROJECT_NAME} PRIVATE winmm ws2_32)
 endif()
 
 # ========================

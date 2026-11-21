@@ -6,7 +6,7 @@
 
 ; ---- 预处理器常量（可通过 iscc /Dxxx=yyy 覆盖）----
 #ifndef AppVersion
-  #define AppVersion "0.0.2"
+  #define AppVersion "1.0.0"
 #endif
 #ifndef AppId
   #define AppId "{{6E5F7A93-2B4C-4D8E-9F1A-3C7D5E9B2A41}"
@@ -26,7 +26,7 @@ AppVerName=37ACUI {#AppVersion}
 AppPublisher=37ACUI Project
 AppPublisherURL=https://github.com/chijichan/37AC
 AppSupportURL=https://github.com/chijichan/37AC
-AppComments=37AC 控制器 — 服务端管理与 CLI 操作图形界面
+AppComments=37AC 控制器 — 模型 / 数据集 / 节点 / 服务端图形化管理（樱花拿铁设计系统）
 
 ; 程序把 acui.ini / acui_settings.ini 写在 exe 所在目录，
 ; 若装到 Program Files 普通用户将无法写入配置，
@@ -89,6 +89,7 @@ Filename: "{app}\ACUI.exe"; Description: "{cm:LaunchProgram,37ACUI}"; Flags: now
 [UninstallDelete]
 Type: files; Name: "{app}\acui.ini"
 Type: files; Name: "{app}\acui_settings.ini"
+Type: files; Name: "{app}\acui_bridge.py"
 Type: filesandordirs; Name: "{app}\project"
 Type: filesandordirs; Name: "{app}\.venv"
 

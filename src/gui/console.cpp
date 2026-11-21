@@ -1,6 +1,71 @@
 #include "console.h"
-#include <cstring>
+
+#include "components.h"
+#include "theme.h"
+
+#include <algorithm>
+#include <chrono>
 #include <cstdio>
+#include <cstring>
+#include <ctime>
+
+namespace
+{
+constexpr size_t kMaxLines = 4000;
+constexpr size_t kTrimTo = 3000;
+constexpr float kRowHeight = 21.0f;
+
+struct LevelStyle
+{
+    ImU32 text;
+    ImU32 dot;
+};
+
+LevelStyle styleFor(ConsoleWidget::Level level)
+{
+    const Theme::Tokens &T = Theme::T;
+    switch (level)
+    {
+    case ConsoleWidget::Level::Success:
+        return {T.successInk, T.success};
+    case ConsoleWidget::Level::Warn:
+        return {T.warningInk, T.warning};
+    case ConsoleWidget::Level::Error:
+        return {T.dangerInk, T.danger};
+    case ConsoleWidget::Level::Command:
+        return {T.pink700, T.pink400};
+    default:
+        return {T.ink700, T.ink300};
+    }
+}
+
+void timestamp(char *buf, size_t n)
+{
+    auto now = std::chrono::system_clock::now();
+    auto tt = std::chrono::system_clock::to_time_t(now);
+    struct tm tm;
+    localtime_s(&tm, &tt);
+    strftime(buf, n, "%H:%M:%S", &tm);
+}
+
+// 从日志正文推断级别（37AC 的 Python 日志带 [INFO]/[ERROR] 前缀）
+ConsoleWidget::Level detectLevel(const std::string &text, ConsoleWidget::Level given)
+{
+    if (given != ConsoleWidget::Level::Info)
+        return given;
+    if (text.find("[ERROR]") != std::string::npos || text.find("Traceback") != std::string::npos ||
+        text.find("错误") != std::string::npos || text.find("失败") != std::string::npos ||
+        text.find("Exception") != std::string::npos)
+        return ConsoleWidget::Level::Error;
+    if (text.find("[WARNING]") != std::string::npos || text.find("[warn]") != std::string::npos ||
+        text.find("警告") != std::string::npos)
+        return ConsoleWidget::Level::Warn;
+    if (text.find("[SUCCESS]") != std::string::npos || text.find("完成") != std::string::npos ||
+        text.find("成功") != std::string::npos)
+        return ConsoleWidget::Level::Success;
+    return given;
+}
+} // namespace
 
 ConsoleWidget::ConsoleWidget()
 {
@@ -8,70 +73,151 @@ ConsoleWidget::ConsoleWidget()
     memset(m_inputBuf, 0, sizeof(m_inputBuf));
 }
 
-ConsoleWidget::~ConsoleWidget()
-{
-    for (int i = 0; i < m_history.Size; i++)
-        ImGui::MemFree(m_history[i]);
-}
+ConsoleWidget::~ConsoleWidget() = default;
 
 void ConsoleWidget::Strtrim(char *s)
 {
     char *end = s + strlen(s);
-    while (end > s && end[-1] == ' ')
+    while (end > s && (end[-1] == ' ' || end[-1] == '\t'))
         end--;
     *end = 0;
-}
-
-char *ConsoleWidget::Strdup(const char *s)
-{
-    IM_ASSERT(s);
-    size_t len = strlen(s) + 1;
-    void *buf = ImGui::MemAlloc(len);
-    IM_ASSERT(buf);
-    return (char *)memcpy(buf, (const void *)s, len);
 }
 
 void ConsoleWidget::ClearLog()
 {
     std::lock_guard<std::mutex> lock(m_mutex);
-    m_fullText.clear();
-    m_fullText.shrink_to_fit(); // 归还内存（clear 只置 size=0，capacity 仍保留）
-    m_displayBuf.clear();
-    m_displayBuf.shrink_to_fit(); // 显示缓冲同步释放
-    m_displaySize = (size_t)-1;   // 强制下一帧重建显示缓冲
+    m_lines.clear();
+    m_lines.shrink_to_fit();
+    m_plainText.clear();
+    m_plainText.shrink_to_fit();
+    m_wrappedText.clear();
+    m_wrappedText.shrink_to_fit();
+    m_plainLineCount = (size_t)-1;
+    m_wrapWidth = 0.0f;
+    m_scrollToBottom = true;
+}
+
+void ConsoleWidget::AddLine(Level level, const std::string &text)
+{
+    char ts[16] = {0};
+    timestamp(ts, sizeof(ts));
+
+    std::lock_guard<std::mutex> lock(m_mutex);
+    Line line;
+    line.time = ts;
+    line.text = text;
+    line.level = detectLevel(text, level);
+    m_lines.push_back(std::move(line));
+
+    // 命令历史（上下键回溯）
+    if (level == Level::Command)
+    {
+        std::string cmd = text;
+        if (!cmd.empty() && cmd[0] == '>')
+            cmd.erase(0, cmd.find_first_not_of("> "));
+        if (!cmd.empty())
+        {
+            m_history.push_back(cmd);
+            if (m_history.size() > 64)
+                m_history.erase(m_history.begin());
+        }
+    }
+
+    if (m_lines.size() > kMaxLines)
+        m_lines.erase(m_lines.begin(), m_lines.begin() + (m_lines.size() - kTrimTo));
+
+    m_plainLineCount = (size_t)-1; // 纯文本缓冲失效
+}
+
+size_t ConsoleWidget::lineCount()
+{
+    std::lock_guard<std::mutex> lock(m_mutex);
+    return m_lines.size();
+}
+
+std::string ConsoleWidget::AllText()
+{
+    std::lock_guard<std::mutex> lock(m_mutex);
+    std::string out;
+    out.reserve(m_plainText.size() + 64);
+    for (const Line &l : m_lines)
+    {
+        out += "[";
+        out += l.time;
+        out += "] ";
+        out += l.text;
+        out += '\n';
+    }
+    return out;
+}
+
+void ConsoleWidget::CompactMemory()
+{
+    std::lock_guard<std::mutex> lock(m_mutex);
+    m_lines.shrink_to_fit();
+    for (Line &l : m_lines)
+    {
+        l.time.shrink_to_fit();
+        l.text.shrink_to_fit();
+    }
+    // 纯文本 / 软换行缓存都是可重建的派生数据，直接丢弃
+    m_plainText.clear();
+    m_plainText.shrink_to_fit();
+    m_wrappedText.clear();
+    m_wrappedText.shrink_to_fit();
+    m_plainLineCount = (size_t)-1;
     m_wrapWidth = 0.0f;
 }
 
-void ConsoleWidget::AddLog(const std::string &line)
+std::vector<ConsoleWidget::TailLine> ConsoleWidget::Tail(size_t n)
 {
     std::lock_guard<std::mutex> lock(m_mutex);
-    m_fullText += line + "\n";
-    if (m_fullText.size() > 500 * 1024)
-    {
-        auto pos = m_fullText.find('\n', m_fullText.size() / 2);
-        if (pos != std::string::npos)
-            m_fullText.erase(0, pos + 1);
-    }
+    std::vector<TailLine> out;
+    size_t start = m_lines.size() > n ? m_lines.size() - n : 0;
+    out.reserve(m_lines.size() - start);
+    for (size_t i = start; i < m_lines.size(); i++)
+        out.push_back({m_lines[i].time, m_lines[i].level, m_lines[i].text});
+    return out;
 }
 
-// 按显示宽度对文本做软换行：ImGui 的 InputTextMultiline 不自动换行（AddText wrap_width=0），
-// 超宽行会水平延伸。这里在重建显示缓冲时按字符 advance 累加宽度，超宽处插入 '\n'。
-void ConsoleWidget::RebuildDisplay(const std::string &text, float wrapWidth)
+void ConsoleWidget::rebuildPlain()
 {
-    m_displayBuf.clear();
-    m_displayBuf.reserve(text.size() + text.size() / 80 + 64);
+    m_plainText.clear();
+    m_plainText.reserve(m_lines.size() * 96);
+    for (const Line &l : m_lines)
+    {
+        m_plainText += "[";
+        m_plainText += l.time;
+        m_plainText += "] ";
+        m_plainText += l.text;
+        m_plainText += '\n';
+    }
+    m_plainLineCount = m_lines.size();
+    m_wrapWidth = 0.0f;
+}
 
-    // ImGui 1.92+: 字符宽度查询移到 ImFontBaked（GetCharAdvance 返回实际像素宽度，已含缩放）
-    ImFont *font = const_cast<ImFont *>(ImGui::GetFont());
-    ImFontBaked *baked = font->GetFontBaked(ImGui::GetFontSize());
+// 纯文本模式按窗口宽度做软换行（ImGui 的只读多行文本不会自动折行）
+void ConsoleWidget::rebuildWrapped(float wrapWidth)
+{
+    m_wrapWidth = wrapWidth;
+    m_wrappedText.clear();
+    m_wrappedText.reserve(m_plainText.size() + m_plainText.size() / 40 + 64);
+
+    ImFont *font = ImGui::GetFont();
+    ImFontBaked *baked = font ? font->GetFontBaked(ImGui::GetFontSize()) : nullptr;
+    if (!baked)
+    {
+        m_wrappedText = m_plainText;
+        return;
+    }
+
     float x = 0.0f;
-    const char *p = text.c_str();
-    const char *end = p + text.size();
+    const char *p = m_plainText.c_str();
+    const char *end = p + m_plainText.size();
     while (p < end)
     {
         unsigned int c = (unsigned char)*p;
         const char *next = p + 1;
-        // 手动解码 UTF-8（避免依赖 imgui_internal.h）
         if ((c & 0x80) == 0)
         {
             c = (unsigned char)*p;
@@ -94,7 +240,7 @@ void ConsoleWidget::RebuildDisplay(const std::string &text, float wrapWidth)
 
         if (c == '\n')
         {
-            m_displayBuf += '\n';
+            m_wrappedText += '\n';
             x = 0.0f;
             p = next;
             continue;
@@ -105,170 +251,178 @@ void ConsoleWidget::RebuildDisplay(const std::string &text, float wrapWidth)
             continue;
         }
 
-        const float w = baked->GetCharAdvance((ImWchar)c);
+        float w = baked->GetCharAdvance((ImWchar)c);
+        if (w <= 0.0f)
+            w = baked->GetCharAdvance((ImWchar)'?');
         if (x > 0.0f && x + w > wrapWidth)
         {
-            m_displayBuf += '\n'; // 软换行：仅显示层插入，不改动原始日志
+            m_wrappedText += '\n';
             x = 0.0f;
         }
-        m_displayBuf.append(p, next - p);
+        m_wrappedText.append(p, next - p);
         x += w;
         p = next;
     }
 }
 
-void ConsoleWidget::Draw(const char *title, ImVec2 size, bool hasInput,
-                         std::function<void(const std::string &)> onCommand,
-                         const char *hint, ImFont *monoFont,
-                         const char *statusText, ImU32 statusColor,
-                         std::function<void()> onStop, const char *stopLabel,
-                         bool autoScroll)
+void ConsoleWidget::DrawLog(ImVec2 size, ImFont *monoFont, ImFont *smallFont,
+                            bool autoScroll, bool plainMode)
 {
-    // 深色终端配色
-    const ImVec4 darkBg(0.105f, 0.115f, 0.135f, 1.00f);
-    const ImVec4 darkBgActive(0.135f, 0.145f, 0.165f, 1.00f);
-    const ImVec4 lightText(0.88f, 0.91f, 0.95f, 1.00f);
-    const ImVec4 cursorWhite(1.00f, 1.00f, 1.00f, 1.00f); // 脱字符（输入光标）白色，便于在深色底上辨识
+    const Theme::Tokens &T = Theme::T;
 
-    // 用 BeginChild 包裹确保 InputTextMultiline 占满可用区域
-    // 注意：不能加 ImGuiWindowFlags_HorizontalScrollbar——水平滚动会禁用换行，
-    // 超宽行将延伸到窗口外。换行由 RebuildDisplay 的软换行实现。
-    ImGui::BeginChild("ConsoleOut", size, false);
+    ImGui::BeginChild("##console_lines", size, false,
+                      plainMode ? ImGuiWindowFlags_None : ImGuiWindowFlags_HorizontalScrollbar);
 
-    // 输出区域 — InputTextMultiline 只读模式，原生支持框选和 Ctrl+C
-    ImGui::PushStyleColor(ImGuiCol_FrameBg, darkBg);
-    ImGui::PushStyleColor(ImGuiCol_FrameBgHovered, darkBgActive);
-    ImGui::PushStyleColor(ImGuiCol_FrameBgActive, darkBgActive);
-    ImGui::PushStyleColor(ImGuiCol_Text, lightText);
-    ImGui::PushStyleColor(ImGuiCol_InputTextCursor, cursorWhite); // 脱字符白色
-    if (monoFont)
-        ImGui::PushFont(monoFont); // 等宽字体，更接近专业终端
-
-    // 仅当内容变化或窗口宽度变化时重建显示缓冲（避免每帧重建，也避免每帧 strncpy）
-    // 保留最新 256KB 原始文本，软换行后超宽行折行显示。
-    // 锁内拷贝日志快照，避免与后台线程 AddLog 的并发写竞争
-    size_t fullSize = 0;
-    std::string src;
+    // ---------------- 纯文本模式（可框选复制） ----------------
+    if (plainMode)
     {
-        std::lock_guard<std::mutex> lock(m_mutex);
-        fullSize = m_fullText.size();
-        src = m_fullText;
-    }
-    const bool contentChanged = (fullSize != m_displaySize);
-    const float availW = ImGui::GetContentRegionAvail().x;
-    const float wrapW = availW - ImGui::GetStyle().FramePadding.x * 2.0f - ImGui::GetStyle().ScrollbarSize;
-    if (contentChanged || wrapW != m_wrapWidth)
-    {
-        m_displaySize = fullSize;
-        m_wrapWidth = wrapW;
-        if (src.size() > kMaxDisplayBytes)
-            src.erase(0, src.size() - kMaxDisplayBytes); // 保留最新部分
-        RebuildDisplay(src, wrapW);
-    }
+        std::string plain;
+        bool contentChanged = false;
+        {
+            std::lock_guard<std::mutex> lock(m_mutex);
+            if (m_plainLineCount != m_lines.size())
+            {
+                rebuildPlain();
+                contentChanged = true;
+            }
+            plain = m_plainText;
+        }
+        float availW = ImGui::GetContentRegionAvail().x;
+        float wrapW = availW - ImGui::GetStyle().ScrollbarSize - 8.0f;
+        if (wrapW < 40.0f)
+            wrapW = 40.0f;
+        if (contentChanged || wrapW != m_wrapWidth)
+            rebuildWrapped(wrapW);
 
-    // 自动滚动：内容新增时让 InputTextMultiline 内部滚动区跳到最底部（最新日志）
-    // SetNextWindowScroll 作用于下一个窗口，即 InputTextMultiline 内部创建的 child。
-    if (autoScroll && contentChanged)
-        ImGui::SetNextWindowScroll(ImVec2(0.0f, 1e9f));
+        if (m_wrappedText.empty())
+            m_wrappedText = " ";
 
-    // 正常路径直接使用 m_displayBuf（readonly 模式 ImGui 不修改缓冲，零拷贝）；
-    // 仅空串时用 fallback：&m_displayBuf[0] 对空 string 是 UB（MSVC 下虽可用但不可移植）
-    std::string fallback;
-    char *bufPtr = nullptr;
-    int bufSize = 0;
-    if (!m_displayBuf.empty())
-    {
-        bufPtr = &m_displayBuf[0];
-        bufSize = (int)m_displayBuf.size() + 1;
-    }
-    else
-    {
-        fallback = " ";
-        bufPtr = &fallback[0];
-        bufSize = 2;
-    }
-    ImGui::InputTextMultiline("##console_out", bufPtr, bufSize,
-                              ImVec2(-1, -1), ImGuiInputTextFlags_ReadOnly);
-
-    if (monoFont)
-        ImGui::PopFont();
-    ImGui::PopStyleColor(5);
-
-    ImGui::EndChild();
-
-    // 输入框
-    if (hasInput && onCommand)
-    {
-        ImGui::Separator();
-        bool reclaim = m_reclaimFocus;
-        m_reclaimFocus = false;
-
-        ImGui::PushItemWidth(-60);
-        ImGui::PushStyleColor(ImGuiCol_FrameBg, darkBg);
-        ImGui::PushStyleColor(ImGuiCol_FrameBgHovered, darkBgActive);
-        ImGui::PushStyleColor(ImGuiCol_FrameBgActive, darkBgActive);
-        ImGui::PushStyleColor(ImGuiCol_Text, lightText);
-        ImGui::PushStyleColor(ImGuiCol_InputTextCursor, cursorWhite); // 脱字符白色
         if (monoFont)
             ImGui::PushFont(monoFont);
-        ImGuiInputTextFlags flags = ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_CallbackHistory;
-        if (ImGui::InputText("##cmd", m_inputBuf, sizeof(m_inputBuf),
-                             flags, &TextEditCallbackStub, (void *)this))
-        {
-            char *s = m_inputBuf;
-            Strtrim(s);
-            if (s[0])
-            {
-                AddLog(std::string("> ") + s);
-                if (onCommand)
-                    onCommand(std::string(s));
-            }
-            s[0] = '\0';
-            reclaim = true;
-        }
+        ImGui::PushStyleColor(ImGuiCol_FrameBg, T.surface);
+        ImGui::PushStyleColor(ImGuiCol_Text, ImGui::ColorConvertU32ToFloat4(T.ink700));
+        if (autoScroll && contentChanged)
+            ImGui::SetNextWindowScroll(ImVec2(0.0f, 1e9f));
+        ImGui::InputTextMultiline("##console_plain", &m_wrappedText[0],
+                                  (int)m_wrappedText.size() + 1, ImVec2(-1, -1),
+                                  ImGuiInputTextFlags_ReadOnly);
+        ImGui::PopStyleColor(2);
         if (monoFont)
             ImGui::PopFont();
-        ImGui::PopStyleColor(5);
-        ImGui::PopItemWidth();
 
-        ImGui::SameLine();
-        if (ImGui::Button("发送", ImVec2(50, 0)))
-        {
-            char *s = m_inputBuf;
-            Strtrim(s);
-            if (s[0])
-            {
-                AddLog(std::string("> ") + s);
-                if (onCommand)
-                    onCommand(std::string(s));
-            }
-            s[0] = '\0';
-            reclaim = true;
-        }
-
-        // 进程状态 + 停止按钮 + 指令提示（显示在输入框下方）
-        bool hasStatus = statusText && statusText[0] && statusColor != 0;
-        if (hasStatus)
-        {
-            ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(statusColor), "%s", statusText);
-            // 停止按钮紧随状态文本（仅在有回调时显示）
-            if (onStop && stopLabel && stopLabel[0])
-            {
-                ImGui::SameLine();
-                if (ImGui::SmallButton(stopLabel))
-                    onStop();
-            }
-        }
-        if (hint)
-        {
-            if (hasStatus)
-                ImGui::SameLine();
-            ImGui::TextDisabled("%s", hint);
-        }
-
-        if (reclaim)
-            ImGui::SetKeyboardFocusHere(-1);
+        ImGui::EndChild();
+        m_wasPlain = true;
+        return;
     }
+    m_wasPlain = false;
+
+    // ---------------- 彩色模式（按级别着色 + 虚拟化） ----------------
+    ImDrawList *dl = ImGui::GetWindowDrawList();
+    bool atBottom = ImGui::GetScrollY() >= ImGui::GetScrollMaxY() - 6.0f;
+    if (ImGui::GetScrollMaxY() <= 0.0f)
+        atBottom = true;
+
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        const int count = (int)m_lines.size();
+        ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(0.0f, 0.0f));
+
+        ImGuiListClipper clipper;
+        clipper.Begin(count, kRowHeight);
+        while (clipper.Step())
+        {
+            for (int i = clipper.DisplayStart; i < clipper.DisplayEnd; i++)
+            {
+                const Line &line = m_lines[(size_t)i];
+                LevelStyle st = styleFor(line.level);
+                ImVec2 rp = ImGui::GetCursorScreenPos();
+
+                dl->AddCircleFilled(ImVec2(rp.x + 6.0f, rp.y + 9.0f), 2.8f, st.dot);
+
+                float x0 = ImGui::GetCursorPosX();
+                ImGui::SetCursorPosX(x0 + 15.0f);
+                if (smallFont)
+                    ImGui::PushFont(smallFont);
+                ImGui::PushStyleColor(ImGuiCol_Text, ImGui::ColorConvertU32ToFloat4(T.ink300));
+                ImGui::TextUnformatted(line.time.c_str());
+                ImGui::PopStyleColor();
+                if (smallFont)
+                    ImGui::PopFont();
+
+                ImGui::SameLine(0.0f, 8.0f);
+                if (monoFont)
+                    ImGui::PushFont(monoFont);
+                ImGui::PushStyleColor(ImGuiCol_Text, ImGui::ColorConvertU32ToFloat4(st.text));
+                ImGui::TextUnformatted(line.text.c_str());
+                ImGui::PopStyleColor();
+                if (monoFont)
+                    ImGui::PopFont();
+
+                ImGui::Dummy(ImVec2(0.0f, kRowHeight - ImGui::GetTextLineHeight()));
+            }
+        }
+        ImGui::PopStyleVar();
+    }
+
+    if (autoScroll && (atBottom || m_scrollToBottom))
+        ImGui::SetScrollHereY(1.0f);
+    m_scrollToBottom = false;
+
+    ImGui::EndChild();
+}
+
+bool ConsoleWidget::DrawInput(std::function<void(const std::string &)> onCommand,
+                              const char *hint, ImFont *monoFont, const char *sendLabel)
+{
+    bool submitted = false;
+    bool reclaim = m_reclaimFocus;
+    m_reclaimFocus = false;
+
+    ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 12.0f);
+    float btnW = 64.0f;
+    ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - btnW - 8.0f);
+    if (monoFont)
+        ImGui::PushFont(monoFont);
+    ImGuiInputTextFlags flags = ImGuiInputTextFlags_EnterReturnsTrue |
+                                ImGuiInputTextFlags_CallbackHistory;
+    if (ImGui::InputTextWithHint("##cmd", hint ? hint : "", m_inputBuf, sizeof(m_inputBuf),
+                                 flags, &TextEditCallbackStub, (void *)this))
+    {
+        char *s = m_inputBuf;
+        Strtrim(s);
+        if (s[0])
+        {
+            AddLine(Level::Command, std::string("> ") + s);
+            if (onCommand)
+                onCommand(std::string(s));
+            submitted = true;
+        }
+        s[0] = '\0';
+        reclaim = true;
+    }
+    if (monoFont)
+        ImGui::PopFont();
+
+    ImGui::SameLine(0.0f, 8.0f);
+    if (UI::Button("##send", sendLabel ? sendLabel : "发送", UI::Variant::Solid, ImVec2(btnW, 0)))
+    {
+        char *s = m_inputBuf;
+        Strtrim(s);
+        if (s[0])
+        {
+            AddLine(Level::Command, std::string("> ") + s);
+            if (onCommand)
+                onCommand(std::string(s));
+            submitted = true;
+        }
+        s[0] = '\0';
+        reclaim = true;
+    }
+    ImGui::PopStyleVar();
+
+    if (reclaim)
+        ImGui::SetKeyboardFocusHere(-1);
+    return submitted;
 }
 
 int ConsoleWidget::TextEditCallbackStub(ImGuiInputTextCallbackData *data)
@@ -284,22 +438,25 @@ int ConsoleWidget::TextEditCallback(ImGuiInputTextCallbackData *data)
     case ImGuiInputTextFlags_CallbackHistory:
     {
         const int prevPos = m_historyPos;
+        const int count = (int)m_history.size();
         if (data->EventKey == ImGuiKey_UpArrow)
         {
             if (m_historyPos == -1)
-                m_historyPos = m_history.Size - 1;
+                m_historyPos = count - 1;
             else if (m_historyPos > 0)
                 m_historyPos--;
         }
         else if (data->EventKey == ImGuiKey_DownArrow)
         {
             if (m_historyPos != -1)
-                if (++m_historyPos >= m_history.Size)
+                if (++m_historyPos >= count)
                     m_historyPos = -1;
         }
         if (prevPos != m_historyPos)
         {
-            const char *histStr = (m_historyPos >= 0) ? m_history[m_historyPos] : "";
+            const char *histStr = (m_historyPos >= 0 && m_historyPos < count)
+                                      ? m_history[(size_t)m_historyPos].c_str()
+                                      : "";
             data->DeleteChars(0, data->BufTextLen);
             data->InsertChars(0, histStr);
         }
