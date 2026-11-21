@@ -351,7 +351,7 @@ LangSys::LangSys()
     add("settings.window", "窗口", "Window");
     add("settings.window_desc", "最小化与关闭行为", "Minimize and close behavior");
     add("settings.close_to_tray", "关闭时最小化到系统托盘", "Minimize to the tray when closing");
-    add("settings.close_to_tray_hint", "点 × 时隐藏到托盘（托盘菜单「退出」仍会结束程序）；点 − 仍最小化到任务栏。",
+    add("settings.close_to_tray_hint", "开启后默认最小化到系统托盘 （推荐）",
         "× hides the window to the tray (Exit in the tray menu still quits); − minimizes to the taskbar.");
     add("settings.console", "控制台", "Console");
     add("settings.console_desc", "日志视图与自动滚动", "Log view and auto-scroll");
