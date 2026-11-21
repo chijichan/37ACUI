@@ -54,6 +54,7 @@ enum class Icon
     Cloud,
     Check,
     Info,
+    Alert,
     ChevronRight,
     ChevronDown,
     Close,

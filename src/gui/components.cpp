@@ -319,6 +319,16 @@ void DrawIcon(ImDrawList *dl, Icon icon, ImVec2 c, float s, ImU32 col)
         dl->AddCircleFilled(ImVec2(c.x, c.y - h * 0.32f), s * 0.055f, col);
         dl->AddLine(ImVec2(c.x, c.y - h * 0.08f), ImVec2(c.x, c.y + h * 0.34f), col, th);
         break;
+    case Icon::Alert:
+    {
+        ImVec2 tri[3] = {ImVec2(c.x, c.y - h * 0.86f),
+                         ImVec2(c.x + h * 0.92f, c.y + h * 0.72f),
+                         ImVec2(c.x - h * 0.92f, c.y + h * 0.72f)};
+        dl->AddPolyline(tri, 3, col, ImDrawFlags_Closed, th * 0.95f);
+        dl->AddLine(ImVec2(c.x, c.y - h * 0.32f), ImVec2(c.x, c.y + h * 0.16f), col, th);
+        dl->AddCircleFilled(ImVec2(c.x, c.y + h * 0.42f), s * 0.055f, col);
+        break;
+    }
     case Icon::ChevronRight:
         dl->AddLine(ImVec2(c.x - h * 0.24f, c.y - h * 0.5f), ImVec2(c.x + h * 0.24f, c.y), col, th);
         dl->AddLine(ImVec2(c.x + h * 0.24f, c.y), ImVec2(c.x - h * 0.24f, c.y + h * 0.5f), col, th);
@@ -1005,7 +1015,14 @@ void RenderToasts()
     Theme::markAnimating(); // 有 Toast 时保持 60fps，让淡入淡出连贯
 
     ImGuiIO &io = ImGui::GetIO();
-    ImGui::SetNextWindowPos(ImVec2(io.DisplaySize.x - kToastW - 18.0f, 16.0f));
+    const float stackW = 320.0f;     // 右上角通知栈的可用宽度
+    const float padX = 14.0f;        // 卡片内边距
+    const float padY = 11.0f;
+    const float iconS = 15.0f;       // 语义图标尺寸（不画圆底/彩条，避免“AI 助手”既视感）
+    const float iconGap = 10.0f;
+    const float minW = 132.0f;
+
+    ImGui::SetNextWindowPos(ImVec2(io.DisplaySize.x - stackW - 16.0f, 14.0f));
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
     ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
     ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
@@ -1019,21 +1036,26 @@ void RenderToasts()
 
     for (const ToastItem &t : g_toasts)
     {
-        float age = (float)(now - t.born);
-        float in = clamp01(age / 0.18f);
-        float out = clamp01((life - age) / 0.35f);
-        float a = Theme::easeOut(in) * out;
-        float slide = (1.0f - Theme::easeOut(in)) * 24.0f;
+        const float age = (float)(now - t.born);
+        const float in = clamp01(age / 0.18f);
+        const float out = clamp01((life - age) / 0.35f);
+        const float a = Theme::easeOut(in) * out;
+        const float rise = (1.0f - Theme::easeOut(in)) * 6.0f; // 轻微上浮，不做横向滑入
 
         ImGui::PushFont(F().body);
-        float textW = kToastW - 24.0f - 34.0f;
-        ImVec2 ts = ImGui::CalcTextSize(t.text.c_str(), nullptr, false, textW);
-        float h = AcMax(50.0f, ts.y + 24.0f);
+        ImVec2 ts = ImGui::CalcTextSize(t.text.c_str(), nullptr, false, stackW - 52.0f);
         ImGui::PopFont();
 
+        float cardW = ts.x + padX * 2.0f + iconS + iconGap;
+        if (cardW < minW)
+            cardW = minW;
+        if (cardW > stackW)
+            cardW = stackW;
+        const float cardH = AcMax(44.0f, ts.y + padY * 2.0f);
+
         ImVec2 p = ImGui::GetCursorScreenPos();
-        ImVec2 mn(p.x + slide, p.y);
-        ImVec2 mx(mn.x + kToastW, mn.y + h);
+        ImVec2 mn(p.x + (stackW - cardW), p.y - rise);
+        ImVec2 mx(mn.x + cardW, mn.y + cardH);
         ImDrawList *dl = ImGui::GetWindowDrawList();
 
         for (int i = 1; i <= 3; i++)
@@ -1041,41 +1063,42 @@ void RenderToasts()
             float e = (float)i * 1.8f;
             dl->AddRectFilled(ImVec2(mn.x - e * 0.3f, mn.y + 2.0f),
                               ImVec2(mx.x + e * 0.3f, mx.y + e * 0.5f + 2.0f),
-                              Theme::withAlpha(IM_COL32(50, 41, 49, 255), 0.035f * a), T.radiusCard + e * 0.5f);
+                              Theme::withAlpha(IM_COL32(50, 41, 49, 255), 0.035f * a),
+                              T.radiusInput + e * 0.5f);
         }
-        dl->AddRectFilled(mn, mx, Theme::withAlpha(T.surface, a), T.radiusCard);
-        dl->AddRect(mn, mx, Theme::withAlpha(T.ink100, a), T.radiusCard, 0, 1.0f);
-        dl->AddRectFilled(ImVec2(mn.x + 6.0f, mn.y + 12.0f), ImVec2(mn.x + 10.0f, mx.y - 12.0f),
-                          Theme::withAlpha(toneSolid(t.tone), a), 2.0f);
+        dl->AddRectFilled(mn, mx, Theme::withAlpha(T.surface, a), T.radiusInput);
+        dl->AddRect(mn, mx, Theme::withAlpha(T.ink100, a), T.radiusInput, 0, 1.0f);
 
-        // 左侧圆底图标
-        ImVec2 ic(mn.x + 26.0f, mn.y + 22.0f);
-        dl->AddCircleFilled(ic, 11.0f, Theme::withAlpha(toneBg(t.tone), a));
-        Icon icn = t.tone == Tone::Danger ? Icon::Close
-                   : t.tone == Tone::Warning ? Icon::Info
-                   : t.tone == Tone::Success ? Icon::Check
-                                             : Icon::Sparkle;
-        DrawIcon(dl, icn, ic, 12.0f, Theme::withAlpha(toneFg(t.tone), a));
+        Icon icn = Icon::Info;
+        if (t.tone == Tone::Danger)
+            icn = Icon::Close;
+        else if (t.tone == Tone::Warning)
+            icn = Icon::Alert;
+        else if (t.tone == Tone::Success)
+            icn = Icon::Check;
+        DrawIcon(dl, icn, ImVec2(mn.x + padX + iconS * 0.5f, mn.y + cardH * 0.5f), iconS,
+                 Theme::withAlpha(toneFg(t.tone), a));
 
         ImVec2 after = ImGui::GetCursorScreenPos();
         ImGui::PushFont(F().body);
-        ImGui::SetCursorScreenPos(ImVec2(mn.x + 44.0f, mn.y + 14.0f));
-        ImGui::PushStyleColor(ImGuiCol_Text, ImGui::ColorConvertU32ToFloat4(Theme::withAlpha(T.ink900, a)));
-        ImGui::PushTextWrapPos(44.0f + textW);
+        ImGui::SetCursorScreenPos(
+            ImVec2(mn.x + padX + iconS + iconGap, mn.y + (cardH - ts.y) * 0.5f));
+        ImGui::PushStyleColor(ImGuiCol_Text,
+                              ImGui::ColorConvertU32ToFloat4(Theme::withAlpha(T.ink900, a)));
+        ImGui::PushTextWrapPos(0.0f);
         ImGui::TextUnformatted(t.text.c_str());
         ImGui::PopTextWrapPos();
         ImGui::PopStyleColor();
         ImGui::PopFont();
         ImGui::SetCursorScreenPos(after);
 
-        ImGui::Dummy(ImVec2(kToastW, h));
+        ImGui::Dummy(ImVec2(stackW, cardH));
     }
 
     ImGui::End();
     ImGui::PopStyleColor();
     ImGui::PopStyleVar(4);
 }
-
 void DimBackground()
 {
     ImGui::GetBackgroundDrawList()->AddRectFilled(ImVec2(0, 0), ImGui::GetIO().DisplaySize,

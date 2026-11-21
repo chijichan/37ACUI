@@ -51,11 +51,17 @@ static void glfw_error_callback(int error, const char *desc)
     fprintf(stderr, "GLFW Error %d: %s\n", error, desc);
 }
 
-// 用户点最小化：主循环里切换到托盘模式（回调内只置标志，不动窗口）
-static void glfw_iconify_callback(GLFWwindow *, int iconified)
+// 用户点关闭（×）：按设置隐藏到托盘，或保持默认的关闭（退出）行为
+static void glfw_close_callback(GLFWwindow *window)
 {
-    if (iconified && g_app)
+
+    if (!g_app)
+        return;
+    if (g_app->closeToTray())
+    {
+        glfwSetWindowShouldClose(window, GLFW_FALSE); // 取消关闭
         g_app->requestTrayHide();
+    }
 }
 
 static void glfw_window_size_callback(GLFWwindow *, int w, int h)
@@ -548,6 +554,7 @@ bool App::init(const char *title, int width, int height)
     refreshEnv();
     refreshModelInfo();
 
+
     addInfo("[OK] 37ACUI started");
     addInfo(std::string("project: ") + m_projectRoot);
     if (m_pythonOk)
@@ -587,6 +594,7 @@ void App::saveConfig()
     fprintf(f, "log_ratio=%.3f\n", m_logRatio);
     fprintf(f, "dataset_choice=%d\n", m_datasetChoice);
     fprintf(f, "node_no_update=%d\n", m_nodeNoUpdate ? 1 : 0);
+    fprintf(f, "close_to_tray=%d\n", m_closeToTray ? 1 : 0);
     fprintf(f, "program=%s\n", m_programDir.c_str());
     fprintf(f, "project=%s\n", m_projectRoot.c_str());
     fprintf(f, "git_url=%s\n", m_gitUrl);
@@ -628,6 +636,8 @@ void App::loadConfig()
             m_datasetChoice = AcClamp(v, 0, 2);
         else if (sscanf(line, "node_no_update=%d", &v) == 1)
             m_nodeNoUpdate = (v != 0);
+        else if (sscanf(line, "close_to_tray=%d", &v) == 1)
+            m_closeToTray = (v != 0);
         else if (strncmp(line, "program=", 8) == 0)
         {
             char *val = line + 8;
@@ -1562,7 +1572,7 @@ void App::startNodeService()
     if (m_nodeNoUpdate)
         cmd += " --no-model-update";
     startProcess("node", cmd, cliRoot());
-    notify(UI::Tone::Info, TR("node.start"));
+    notify(UI::Tone::Info, TR("toast.node_started"));
 }
 
 void App::startServer()
@@ -1573,7 +1583,7 @@ void App::startServer()
         return;
     }
     startProcess("server", "runserver.py", serverRoot());
-    notify(UI::Tone::Info, TR("server.start"));
+    notify(UI::Tone::Info, TR("toast.server_started"));
 }
 
 void App::runBridge(const std::string &label, const std::string &args)
@@ -1765,10 +1775,11 @@ bool App::createWindow(int width, int height, bool visible)
 
     glfwSetWindowSizeLimits(g_window, 980, 640, GLFW_DONT_CARE, GLFW_DONT_CARE);
     glfwSetFramebufferSizeCallback(g_window, glfw_framebuffer_size_callback);
-    glfwSetWindowIconifyCallback(g_window, glfw_iconify_callback);
     glfwSetWindowSizeCallback(g_window, glfw_window_size_callback);
     glfwSetWindowPosCallback(g_window, glfw_window_pos_callback);
     glfwSetWindowMaximizeCallback(g_window, glfw_window_maximize_callback);
+    // 注意：不再拦截最小化（−），点 − 走系统默认行为 -> 任务栏
+    glfwSetWindowCloseCallback(g_window, glfw_close_callback);
     noteWindowSize(width, height);
 
     glfwMakeContextCurrent(g_window);
@@ -1827,6 +1838,7 @@ void App::enterTrayMode()
     }
     if (m_trayMode.exchange(true))
         return;
+
 
     addInfo(std::string("[tray] ") + TR("tray.log_enter"));
     destroyUi();
@@ -2425,8 +2437,9 @@ void App::renderPageHeader()
         actions.push_back({"check", TR("common.recheck"), UI::Variant::Ghost, UI::Icon::Refresh,
                            [this]()
                            {
-                               checkPython();
-                               notify(UI::Tone::Info, TR("env.python")); }});
+                               const bool ok = checkPython();
+                               notify(ok ? UI::Tone::Success : UI::Tone::Danger,
+                                      TR(ok ? "env.recheck_ok" : "env.recheck_fail")); }});
         break;
     case Page::Node:
         actions.push_back({"srv", TR("server.link_upload"), UI::Variant::Ghost, UI::Icon::Cloud,

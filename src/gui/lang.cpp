@@ -65,9 +65,9 @@ LangSys::LangSys()
     add("tray.tip", "37ACUI · 37AC 控制器", "37ACUI · 37AC Controller");
     add("tray.show", "显示主界面", "Show window");
     add("tray.quit", "退出", "Exit");
-    add("tray.balloon", "已最小化到系统托盘，双击图标可恢复界面。",
-        "Minimized to the system tray. Double-click the icon to restore.");
-    add("tray.log_enter", "已最小化到托盘，界面资源已释放", "minimized to tray, UI resources released");
+    add("tray.balloon", "已隐藏到系统托盘，双击图标可恢复界面。",
+        "Hidden to the system tray. Double-click the icon to restore.");
+    add("tray.log_enter", "已隐藏到系统托盘，界面资源已释放", "hidden to tray, UI resources released");
     add("tray.log_restore", "已从托盘恢复界面", "restored from tray");
 
     // ---------------------------------------------------------------- 概览
@@ -264,6 +264,8 @@ LangSys::LangSys()
     add("env.title", "环境", "Environment");
     add("env.subtitle", "Python 环境、依赖与 .env 配置", "Python runtime, dependencies and .env files");
     add("env.python", "Python 状态", "Python");
+    add("env.recheck_ok", "Python 环境正常", "Python environment OK");
+    add("env.recheck_fail", "未检测到可用的 Python", "No working Python found");
     add("env.python_desc", "系统解释器与 .venv", "Interpreter and .venv");
     add("env.ready", "Python 就绪", "Python ready");
     add("env.nofound", "Python 未找到", "Python not found");
@@ -346,6 +348,11 @@ LangSys::LangSys()
     add("settings.project_dir", "项目目录", "Project dir");
     add("settings.git_url", "源码下载地址", "Source archive URL");
     add("settings.git_url_desc", "GitHub 归档 zip，下载后自动解压到项目目录", "GitHub archive zip, unpacked into the project folder");
+    add("settings.window", "窗口", "Window");
+    add("settings.window_desc", "最小化与关闭行为", "Minimize and close behavior");
+    add("settings.close_to_tray", "关闭时最小化到系统托盘", "Minimize to the tray when closing");
+    add("settings.close_to_tray_hint", "点 × 时隐藏到托盘（托盘菜单「退出」仍会结束程序）；点 − 仍最小化到任务栏。",
+        "× hides the window to the tray (Exit in the tray menu still quits); − minimizes to the taskbar.");
     add("settings.console", "控制台", "Console");
     add("settings.console_desc", "日志视图与自动滚动", "Log view and auto-scroll");
     add("settings.log_view", "日志视图", "Log view");
@@ -392,6 +399,8 @@ LangSys::LangSys()
 
     // ---------------------------------------------------------------- 提示 / Toast
     add("toast.started", "已启动：%s", "Started: %s");
+    add("toast.node_started", "节点服务已启动", "Node service started");
+    add("toast.server_started", "服务端已启动", "Server started");
     add("toast.stop_first", "已有进程在运行，请先停止", "Another process is running; stop it first");
     add("toast.need_python", "未检测到可用的 Python 环境", "No working Python environment detected");
     add("toast.need_project", "项目目录不存在，请先下载源码", "Project folder missing; download the source first");

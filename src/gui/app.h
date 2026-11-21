@@ -134,6 +134,8 @@ public:
     void requestTrayShow();
     void requestTrayQuit();
     bool inTrayMode() const { return m_trayMode.load(); }
+    // 关闭（×）时是否隐藏到托盘；关闭该选项则直接退出
+    bool closeToTray() const { return m_closeToTray; }
     // 窗口尺寸/位置回调：最小化时窗口尺寸会变成 0，需要缓存最后一次有效值
     void noteWindowSize(int w, int h);
     void noteWindowPos(int x, int y);
@@ -275,6 +277,7 @@ private:
     std::atomic<bool> m_pendingTrayQuit{false};
     std::atomic<bool> m_quitRequested{false};
     bool m_trayAvailable = false;
+    bool m_closeToTray = true;
     int m_trayWinX = 100, m_trayWinY = 50, m_trayWinW = 1280, m_trayWinH = 800;
     bool m_trayWinMaximized = false;
 

@@ -1143,8 +1143,9 @@ void App::renderEnvPage()
                           UI::Icon::Terminal, TR("common.recheck"), &recheck);
             if (recheck)
             {
-                checkPython();
-                notify(UI::Tone::Info, TR("env.python"));
+                const bool ok = checkPython();
+                notify(ok ? UI::Tone::Success : UI::Tone::Danger,
+                       TR(ok ? "env.recheck_ok" : "env.recheck_fail"));
             }
             {
                 UI::StatusDot(s.pythonOk ? UI::Tone::Success : UI::Tone::Danger, 4.0f, true);
@@ -1340,6 +1341,16 @@ void App::renderSettingsPage()
             UI::EndCard();
             ImGui::Dummy(ImVec2(0, gap));
 
+            UI::BeginCard("##set_window", TR("settings.window"), colW,
+                          TR("settings.window_desc"), UI::Icon::Sliders);
+            {
+                UI::Toggle("##close_to_tray", &m_closeToTray, TR("settings.close_to_tray"));
+                ImGui::Dummy(ImVec2(0, 6.0f));
+                UI::WrapHint(TR("settings.close_to_tray_hint"));
+            }
+            UI::EndCard();
+            ImGui::Dummy(ImVec2(0, gap));
+
             UI::BeginCard("##set_paths", TR("settings.paths"), colW, TR("settings.paths_desc"),
                           UI::Icon::Folder);
             {
@@ -1410,6 +1421,7 @@ void App::renderSettingsPage()
             }
             UI::EndCard();
             ImGui::Dummy(ImVec2(0, gap));
+
 
             UI::BeginCard("##set_system", TR("settings.system"), colW, TR("settings.system_desc"),
                           UI::Icon::Server);
